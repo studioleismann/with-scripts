@@ -1,0 +1,43 @@
+{
+  "name": "with-scripts",
+  "version": "0.1.0",
+  "description": "Reusable project scripts for local WordPress and DDEV workflows.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "with-scripts": "./bin/with-scripts.mjs"
+  },
+  "scripts": {
+    "check": "node --check ./bin/with-scripts.mjs && node --check ./src/cli.mjs && node --check ./src/configure-wordpress.mjs && node --check ./src/inspect-wordpress.mjs && node --check ./src/pull-wordpress.mjs && node --check ./src/remote-wordpress.mjs && node --check ./src/setup-theme.mjs && node --check ./src/setup-wordpress.mjs && node --check ./src/sync-tools.mjs && node --check ./src/push-wordpress.mjs && bash -n ./src/push-remote.sh && php -l ./src/push-content.php && node --check ./src/setup-deployment.mjs && bash -n ./src/setup-deployment.sh",
+    "test": "node --test",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "verify": "npm run check && npm test",
+    "pack:dry-run": "npm pack --dry-run",
+    "prepack": "npm run verify"
+  },
+  "files": [
+    "bin",
+    "docs",
+    "src",
+    "templates",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/studioleismann/with-scripts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/studioleismann/with-scripts/issues"
+  },
+  "homepage": "https://github.com/studioleismann/with-scripts#readme",
+  "license": "GPL-2.0-or-later",
+  "dependencies": {
+    "@clack/prompts": "1.8.1",
+    "picocolors": "1.1.1"
+  },
+  "engines": {
+    "node": ">=20.12.0"
+  }
+}

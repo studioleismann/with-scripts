@@ -1,0 +1,42 @@
+# Replace {{THEME_SLUG}} and {{PLUGIN_SLUG}} before using this file.
+# Remove the plugin rules when the project has no custom plugin.
+
+# Local DDEV runtime files
+.ddev/.downloads/
+.ddev/.importdb*
+
+# Local and production configuration
+.with-scripts.json
+.htaccess*
+nginx.conf
+local-xdebuginfo.php
+wp-config.php
+.maintenance*
+
+# WordPress core
+/wp-admin/
+/wp-includes/
+/*.php
+/license.txt
+/readme.html
+
+# WordPress runtime and third-party code
+/wp-content/*
+!/wp-content/themes/
+/wp-content/themes/*
+!/wp-content/themes/{{THEME_SLUG}}/
+
+!/wp-content/plugins/
+/wp-content/plugins/*
+!/wp-content/plugins/{{PLUGIN_SLUG}}/
+
+# Pull archives and database dumps
+*.sql
+*.sql.gz
+*.tar
+*.tar.gz
+*.tgz
+
+# Local and editor files
+.DS_Store
+node_modules/

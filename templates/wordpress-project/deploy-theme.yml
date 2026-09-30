@@ -1,0 +1,70 @@
+name: Deploy production
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+env:
+  WORDPRESS_ROOT: "{{WORDPRESS_ROOT}}"
+  DEPLOY_TMP_PATH: "{{DEPLOY_TMP_PATH}}"
+  THEME_SLUG: "{{THEME_SLUG}}"
+  THEME_SCREENSHOT: "{{THEME_SCREENSHOT}}"
+  LIVE_URL: "{{LIVE_URL}}"
+
+jobs:
+  deploy:
+    name: Build and deploy theme
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: wp-content/themes/${{ env.THEME_SLUG }}/package-lock.json
+
+      - name: Install theme dependencies
+        run: npm ci
+        working-directory: wp-content/themes/${{ env.THEME_SLUG }}
+
+      - name: Build theme
+        run: npm run build
+        working-directory: wp-content/themes/${{ env.THEME_SLUG }}
+
+      - name: Check deployment files
+        run: |
+          test -f "wp-content/themes/${{ env.THEME_SLUG }}/style.css"
+          test -f "wp-content/themes/${{ env.THEME_SLUG }}/functions.php"
+          test -d "wp-content/themes/${{ env.THEME_SLUG }}/build"
+
+      - name: Deploy theme over SSH
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          port: ${{ secrets.PORT }}
+          tar_tmp_path: ${{ env.DEPLOY_TMP_PATH }}
+          source: wp-content/themes/${{ env.THEME_SLUG }}/assets,wp-content/themes/${{ env.THEME_SLUG }}/build,wp-content/themes/${{ env.THEME_SLUG }}/inc,wp-content/themes/${{ env.THEME_SLUG }}/parts,wp-content/themes/${{ env.THEME_SLUG }}/patterns,wp-content/themes/${{ env.THEME_SLUG }}/styles,wp-content/themes/${{ env.THEME_SLUG }}/templates,wp-content/themes/${{ env.THEME_SLUG }}/functions.php,wp-content/themes/${{ env.THEME_SLUG }}/LICENSE,wp-content/themes/${{ env.THEME_SLUG }}/${{ env.THEME_SCREENSHOT }},wp-content/themes/${{ env.THEME_SLUG }}/style.css,wp-content/themes/${{ env.THEME_SLUG }}/theme.json
+          target: ${{ env.WORDPRESS_ROOT }}/wp-content/themes/${{ env.THEME_SLUG }}
+          strip_components: 3
+          overwrite: true
+
+      - name: Check production website
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 5 "${{ env.LIVE_URL }}/" > /dev/null
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 5 "${{ env.LIVE_URL }}/wp-content/themes/${{ env.THEME_SLUG }}/style.css" > /dev/null

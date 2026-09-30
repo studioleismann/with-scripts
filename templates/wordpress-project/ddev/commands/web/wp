@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+## Description: Run WordPress CLI inside the web container without PHP 8.5 deprecation noise
+## Usage: wp [flags] [args]
+## Example: "ddev wp core version" or "ddev wp plugin install user-switching --activate"
+## ProjectTypes: wordpress,wp-bedrock
+## ExecRaw: true
+## MutagenSync: true
+
+# Ignore anything we find in the mounted global commands.
+PATH=${PATH//\/mnt\/ddev-global-cache\/global-commands\/web/}
+
+# Add --path if not already set and $DDEV_DOCROOT is defined.
+if [[ ! " $* " =~ (--path(=|\s)) ]] && [[ -n "$DDEV_DOCROOT" ]]; then
+	existing_wp_path="$(yq -r '.path // ""' "$(wp cli info --format=json 2>/dev/null | jq -r '.project_config_path // empty' 2>/dev/null)" 2>/dev/null)"
+	[[ -z "$existing_wp_path" ]] && set -- "$@" --path="$DDEV_DOCROOT"
+fi
+
+php \
+	-d 'error_reporting=E_ALL & ~E_DEPRECATED' \
+	/usr/local/bin/wp-cli \
+	--exec="WP_CLI::add_hook('after_wp_load', function () { error_reporting(E_ALL & ~E_DEPRECATED); });" \
+	"$@"
