@@ -6,7 +6,9 @@ synchronize shared tools, prepare release deployments, and push a complete site.
 
 ## Launch video
 
-[![Watch the with-scripts launch video](docs/media/with-scripts-launch.jpg)](docs/media/with-scripts-launch.mp4)
+https://github.com/user-attachments/assets/af611176-1757-4d70-81ad-44f5cc4802d6
+
+
 
 See how `with-scripts` takes a WordPress site from hosted setup to a local DDEV copy, then helps configure, build, and ship it.
 
