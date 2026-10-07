@@ -7,7 +7,7 @@ the destination's state.
 | --- | --- | --- |
 | `pull-wordpress` | Hosted WordPress → local DDEV | Local database and remote file copies, with Git protections |
 | `push-wordpress` | Local DDEV → explicit hosted WordPress | Target database and managed runtime paths after backup/review |
-| Published-release workflow | Tagged website source → hosted WordPress | Selected custom theme/plugin files |
+| Published-release workflow | Tagged website source → hosted WordPress | Whole repository-owned themes, plugins, and MU-plugins |
 
 ## A pull refreshes development data
 
@@ -37,10 +37,12 @@ A release workflow builds from the published tag and uploads selected custom cod
 It leaves the existing production database, uploads, accounts, and other packages in
 place. Git versioning and review apply to the files in that source state.
 
-`setup-deployment` prepares this workflow and its SSH/GitHub configuration. Publishing
-a release is a separate action. The bundled workflow is a sequential overwrite
-upload with HTTP checks; backups, atomic switching, stale-file cleanup, and rollback
-need their own deployment process.
+`setup-deployment` prepares the website repository, validates its release package,
+and configures SSH/GitHub. Publishing a release is a separate action. The versioned
+website workflow stages and replaces whole owned components, removes stale owned
+code, and verifies HTTP responses. Failed verification triggers rollback; incomplete
+rollback retains recovery evidence and maintenance mode. Regular production backups
+remain part of the site's operating process.
 
 ## WordPress stores important work outside Git
 

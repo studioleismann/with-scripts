@@ -57,8 +57,8 @@ const commands = new Map([
   [
     'setup-deployment',
     {
-      description: 'Prepare a release workflow and guide SSH and GitHub secret setup.',
-      options: ['--theme=<slug>', '--plugin=<slug|none>', '--root=<path>', '--temp=<path>', '--url=<https-url>', '--host=<hostname>', '--user=<username>', '--port=<port>', '--key-file=<path>', '--hosting-url=<https-url>', '--plugin-main=<file>', '--plugin-health=<build-file>', '--dry-run', '--demo (interactive walkthrough with example values; works in an empty folder)'],
+      description: 'Create or update a website repository, validate release builds, and configure SSH deployment.',
+      options: ['--repo=<owner/name>', '--ssh=<alias>', '--component=<path> (repeatable)', '--theme=<slug>', '--plugin=<slug|none>', '--root=<path>', '--url=<https-url>', '--host=<hostname>', '--user=<username>', '--port=<port>', '--key-file=<path>', '--fingerprint=<SHA256:fingerprint>', '--dry-run', '--yes', '--replace-secrets', '--demo (offline walkthrough; works in an empty folder)'],
       run: setupDeployment,
     },
   ],
@@ -117,7 +117,7 @@ if (!process.argv[2] && interactive) {
       { value: 'configure-wordpress', label: 'Configure local WordPress', hint: 'Pages, settings, and plugins' },
       { value: 'setup-theme', label: 'Create a customer theme', hint: 'Start from With Base' },
       { value: 'sync-tools', label: 'Synchronize shared tools', hint: 'Patterns, Theme Tools, and Site Tools' },
-      { value: 'setup-deployment', label: 'Set up release deployments', hint: 'SSH access and GitHub Actions' },
+      { value: 'setup-deployment', label: 'Set up release deployments', hint: 'Website repository, build checks, SSH and GitHub Actions' },
       { value: 'push-wordpress', label: 'Push a site to the server', hint: 'Replaces the target website after review' },
       { value: 'demo', label: 'Try the deployment wizard', hint: 'Simulated steps with example values' },
       { value: 'help', label: 'Show commands and help' },

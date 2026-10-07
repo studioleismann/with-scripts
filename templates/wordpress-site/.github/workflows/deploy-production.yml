@@ -1,0 +1,256 @@
+name: Deploy production
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+env:
+  WORDPRESS_ROOT: ${{ vars.WORDPRESS_ROOT }}
+  LIVE_URL: ${{ vars.LIVE_URL }}
+  DEPLOY_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  deploy:
+    name: Build and deploy WordPress code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Test deployment transaction
+        env:
+          WITH_DEPLOY_FULL_TESTS: '1'
+        run: node --test .github/scripts/deployment.test.mjs
+
+      - name: Build deployment artifact
+        run: node .github/scripts/prepare-deployment.mjs "$RUNNER_TEMP/with-deployment.tar.gz"
+
+      - name: Validate deployment configuration
+        run: |
+          set -euo pipefail
+
+          test -n '${{ secrets.FINGERPRINT }}'
+          test -n '${{ secrets.HOST }}'
+          test -n '${{ secrets.KEY }}'
+          test -n '${{ secrets.PORT }}'
+          test -n '${{ secrets.USERNAME }}'
+          test -n "$LIVE_URL"
+          test -n "$WORDPRESS_ROOT"
+
+      - name: Verify SSH connectivity
+        env:
+          DEPLOY_HOST: ${{ secrets.HOST }}
+          DEPLOY_PORT: ${{ secrets.PORT }}
+        run: |
+          set -euo pipefail
+
+          python3 - "$DEPLOY_HOST" "$DEPLOY_PORT" <<'PY'
+          import socket
+          import sys
+
+          host = sys.argv[1]
+          port = int(sys.argv[2])
+
+          try:
+              infos = socket.getaddrinfo(host, port, family=socket.AF_INET, type=socket.SOCK_STREAM)
+          except socket.gaierror as exc:
+              raise SystemExit(f"SSH host does not resolve: {host}: {exc}") from exc
+
+          if not infos:
+              raise SystemExit(f"SSH host could not be resolved: {host}")
+
+          last_error = None
+          for family, socktype, proto, _, sockaddr in infos:
+              try:
+                  with socket.create_connection(sockaddr, timeout=15):
+                      print(f"SSH connectivity OK: {host}:{port}")
+                      raise SystemExit(0)
+              except OSError as exc:
+                  last_error = exc
+
+          raise SystemExit(
+              f"SSH connection timed out or was refused: {host}:{port}. "
+              "Check that the server is online and that the GitHub secrets HOST and PORT point to the public SSH endpoint. "
+              f"Last error: {last_error}"
+          )
+          PY
+
+      - name: Upload remote deployment script
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          protocol: tcp4
+          source: .github/scripts/remote-deployment.sh
+          target: /tmp/with-deploy-${{ env.DEPLOY_RUN_KEY }}/
+          strip_components: 2
+
+      - name: Prepare production transaction
+        id: create
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          command_timeout: 20m
+          script: |
+            set -eu
+            script_path="/tmp/with-deploy-${{ env.DEPLOY_RUN_KEY }}/remote-deployment.sh"
+            chmod 700 "$script_path"
+            sh "$script_path" preflight "${{ env.WORDPRESS_ROOT }}" "${{ env.DEPLOY_RUN_KEY }}"
+            sh "$script_path" create "${{ env.WORDPRESS_ROOT }}" "${{ env.DEPLOY_RUN_KEY }}"
+
+      - name: Stage artifact filename
+        run: |
+          set -euo pipefail
+          mkdir -p .deploy-artifact
+          cp "$RUNNER_TEMP/with-deployment.tar.gz" .deploy-artifact/artifact.tar.gz
+
+      - name: Upload deployment artifact
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          protocol: tcp4
+          source: .deploy-artifact/artifact.tar.gz
+          strip_components: 1
+          target: ${{ env.WORDPRESS_ROOT }}/wp-content/.with-deploy-${{ env.DEPLOY_RUN_KEY }}/
+
+      - name: Prepare deployment candidate
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          command_timeout: 20m
+          script: |
+            set -eu
+            script_path="/tmp/with-deploy-${{ env.DEPLOY_RUN_KEY }}/remote-deployment.sh"
+            sh "$script_path" prepare "${{ env.WORDPRESS_ROOT }}" "${{ env.DEPLOY_RUN_KEY }}"
+
+      - name: Clean failed preparation
+        if: ${{ failure() && steps.create.outcome == 'success' && steps.switch.outcome != 'success' }}
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          command_timeout: 20m
+          script: |
+            set -eu
+            sh "/tmp/with-deploy-${{ env.DEPLOY_RUN_KEY }}/remote-deployment.sh" cleanup "${{ env.WORDPRESS_ROOT }}" "${{ env.DEPLOY_RUN_KEY }}"
+
+      - name: Switch production components
+        id: switch
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          command_timeout: 20m
+          script: |
+            set -eu
+            sh "/tmp/with-deploy-${{ env.DEPLOY_RUN_KEY }}/remote-deployment.sh" switch "${{ env.WORDPRESS_ROOT }}" "${{ env.DEPLOY_RUN_KEY }}"
+
+      - name: Check production website
+        id: smoke
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+
+          curl \
+            --location \
+            --silent \
+            --show-error \
+            --connect-timeout 10 \
+            --retry 3 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --max-time 30 \
+            --output "$RUNNER_TEMP/homepage.html" \
+            --write-out '%{http_code}\n' \
+            --header "Cache-Control: no-cache" \
+            "${LIVE_URL}/?with_deploy_check=${DEPLOY_RUN_KEY}" \
+          > "$RUNNER_TEMP/homepage-status"
+
+          if ! grep -Fxq '200' "$RUNNER_TEMP/homepage-status"; then
+            grep -Fq 'Die Website ist aufgrund von Wartungsarbeiten nicht verfügbar.' "$RUNNER_TEMP/homepage.html"
+            grep -Fxq '503' "$RUNNER_TEMP/homepage-status"
+          fi
+
+          while IFS=$'\t' read -r component_type component_path; do
+            case "$component_path" in
+              wp-content/themes/*)
+                curl \
+                  --fail \
+                  --location \
+                  --silent \
+                  --show-error \
+                  --connect-timeout 10 \
+                  --retry 3 \
+                  --retry-all-errors \
+                  --retry-delay 5 \
+                  --max-time 30 \
+                  "${LIVE_URL}/${component_path}/style.css" \
+                > /dev/null
+                ;;
+            esac
+          done < <(tar -xOzf "$RUNNER_TEMP/with-deployment.tar.gz" .with-deploy-manifest)
+
+      - name: Roll back failed verification
+        if: ${{ always() && steps.switch.outcome == 'success' && steps.smoke.outcome != 'success' }}
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          command_timeout: 20m
+          script: |
+            set -eu
+            sh "/tmp/with-deploy-${{ env.DEPLOY_RUN_KEY }}/remote-deployment.sh" rollback "${{ env.WORDPRESS_ROOT }}" "${{ env.DEPLOY_RUN_KEY }}"
+
+      - name: Commit verified deployment
+        if: ${{ steps.switch.outcome == 'success' && steps.smoke.outcome == 'success' }}
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          command_timeout: 20m
+          script: |
+            set -eu
+            sh "/tmp/with-deploy-${{ env.DEPLOY_RUN_KEY }}/remote-deployment.sh" commit "${{ env.WORDPRESS_ROOT }}" "${{ env.DEPLOY_RUN_KEY }}"

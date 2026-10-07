@@ -1,20 +1,11 @@
 # Deploy custom WordPress code
 
-Use a website GitHub release to publish a custom theme and optionally one built
-plugin. This guide covers reviewing or manually adapting the bundled workflows and
-publishing from an exact source state. For guided SSH/key/secret setup, start with
-[Set up release deployments](set-up-release-deployments.md).
+Use [Set up a website repository and release deployment](set-up-release-deployments.md)
+to prepare the repository, release package, dedicated SSH key, and GitHub settings.
+The generated [deployment guide](../../templates/wordpress-site/docs/deployment.md)
+describes production transactions, rollback, and recovery.
 
-## 1. Review tracked source and runtime files
-
-The website repository should track the custom components under `wp-content/themes/`
-and `wp-content/plugins/`. Merge the
-[Git-ignore baseline](../../templates/wordpress-project/gitignore) into existing rules,
-replace its slug placeholders, and review `git ls-files` for previously tracked
-runtime/configuration files. Private configuration, uploads, and third-party code
-belong outside this code release.
-
-Check the branch, origin, and changes before selecting a release state:
+## Review the release source
 
 ```sh
 git branch --show-current
@@ -23,84 +14,39 @@ git status
 git log -1 --oneline
 ```
 
-## 2. Build and test the components
+Review tracked custom themes, plugins, and MU-plugins. Their complete runtime
+payload must be present in the release package. A component with `package.json`
+uses its `files` array and build script; one without it is exported from Git.
+WordPress Core, third-party plugins, uploads, credentials, and database dumps belong
+outside the code release. Removing an owned component from Git removes it from
+production on the next successful release.
 
-From the website root, using the real theme slug:
+## Build and test
 
-```sh
-npm --prefix wp-content/themes/example-theme ci
-npm --prefix wp-content/themes/example-theme run build
-```
-
-For the optional built plugin:
-
-```sh
-npm --prefix wp-content/plugins/example-plugin ci
-npm --prefix wp-content/plugins/example-plugin run build
-```
-
-Run each package's existing lint/tests and inspect them together in local WordPress.
-Check that lockfiles and dependencies work on a clean GitHub runner. For example,
-a `file:` dependency pointing to a sibling checkout needs that source or another
-reviewed dependency arrangement available in CI.
-
-## 3. Create or review the workflow
-
-The wizard generates `.github/workflows/deploy-production.yml`. For manual setup,
-choose the [theme template](../../templates/wordpress-project/deploy-theme.yml) or
-[theme-and-plugin template](../../templates/wordpress-project/deploy-theme-and-plugin.yml).
-When there is no existing deployment file, copy the chosen template:
+With Node.js 24, from the website repository root:
 
 ```sh
-mkdir -p .github/workflows
-cp ~/code/packages/with-scripts/templates/wordpress-project/deploy-theme.yml .github/workflows/deploy-production.yml
+WITH_DEPLOY_FULL_TESTS=1 node --test .github/scripts/deployment.test.mjs
+node .github/scripts/prepare-deployment.mjs /tmp/example-deployment.tar.gz
 ```
 
-Replace the placeholders listed in the
-[template reference](../reference/project-templates.md#template-values). Keep public
-paths/slugs/URLs in `env`. Use an existing writable `DEPLOY_TMP_PATH` outside the web
-root with a trailing slash.
+The packager installs/builds npm components in its current checkout. Use a temporary
+copy to preserve development dependencies and generated files, as `setup-deployment`
+does automatically. It refuses to overwrite an existing output archive. Dependencies
+must resolve in a clean GitHub runner; local sibling `file:` dependencies need a
+release-compatible arrangement. Run component lint/tests and inspect the local site.
 
-Review the explicit upload lists. The theme list must contain every required runtime
-path and omit absent paths. The plugin list supplies only `build/` and the loader;
-add other required runtime files deliberately. A plugin with no npm build needs a
-manually adapted workflow.
+## Check configuration
 
-The checked-in templates run on `release: published`, check out that release's tag,
-and use Node.js 24. They overwrite matching uploaded files and leave remote-only
-files present. Plan removals explicitly when source files were deleted. Theme/plugin
-activation and database changes are separate tasks.
+The private website repository needs variables `WORDPRESS_ROOT` and `LIVE_URL`,
+and secrets `HOST`, `USERNAME`, `PORT`, `FINGERPRINT`, and `KEY`. Confirm the trusted
+ED25519 server fingerprint, the intended account, writable WordPress paths, and
+public IPv4 SSH reachability from GitHub Actions. Setup verifies the key with the
+personal agent disabled and runs the remote read-only preflight.
 
-## 4. Verify credentials and target paths
+## Publish the reviewed tag
 
-The workflow expects five repository Actions secrets:
-
-| Secret | Value |
-| --- | --- |
-| `HOST` | Actual SSH hostname/IP reachable from GitHub Actions |
-| `USERNAME` | Hosting account |
-| `KEY` | Complete private deployment key |
-| `PORT` | SSH port |
-| `FINGERPRINT` | SHA256 server host-key fingerprint |
-
-Use a dedicated deployment key. The wizard verifies it with the personal agent
-disabled and an explicitly trusted host key. If doing this manually, establish the
-same checks: authorized public key, passphrase-free private key, trusted host identity,
-and target/temp paths writable by that account.
-
-A scan can list candidate server fingerprints:
-
-```sh
-ssh-keyscan -p 22 server.example.org 2>/dev/null | ssh-keygen -lf - -E sha256
-```
-
-Confirm the chosen fingerprint through the hosting provider or a trusted server
-console before storing it. The scan alone supplies no independent trust.
-
-## 5. Publish the reviewed state
-
-Choose an unused website tag. For example, from the clean, reviewed checkout with
-its intended origin/branch and workflow already committed:
+Choose an unused version tag from the clean, reviewed commit:
 
 ```sh
 git tag v1.0.0
@@ -109,38 +55,25 @@ git push origin v1.0.0
 gh release create v1.0.0 --verify-tag --generate-notes
 ```
 
-The final command publishes the release and starts deployment. The tag is created
-from the reviewed local commit and uploaded explicitly. Published prereleases also
-match this workflow's event; see [GitHub's release-event behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release).
+The final command publishes the release and starts deployment from that exact tag.
+Published prereleases also deploy. A normal push or draft release does not trigger
+the generated deployment workflow.
 
-## 6. Verify the result
+## Verify production and recover failures
 
-Open the Actions run for the release and check the build, upload, and HTTP results.
-Then review the homepage, relevant pages, theme assets, and plugin behavior in the
-actual site. The template's HTTP checks follow redirects and only test the homepage,
-theme stylesheet, and optional plugin asset.
+Inspect the Actions run, its artifact preparation, transaction switch, and HTTP
+checks. Then verify the changed pages and application behavior in the live site.
+HTTP checks establish availability; they do not establish visual/editor correctness.
+Keep production backups through the site's normal backup process.
 
-Take and retain appropriate production backups through the site's normal process.
-The release templates supply an overwrite upload; they contain no remote backup,
-atomic switch, automatic rollback, or deletion of stale files. If a plugin upload
-fails after the theme upload, the site can contain components from different releases.
+Build/preparation failures stop before switching live components. A failed smoke
+check triggers rollback; an incomplete rollback retains maintenance/recovery
+material. Follow the generated deployment guide before manually removing it.
 
-## Diagnose a failed release
+Correct a broken code release by publishing a reviewed fixed or known-good revision
+under a new tag. Workflow changes also require a new release revision; retrying an
+old release retains its workflow/source context.
 
-| Failure | What to inspect |
-| --- | --- |
-| `npm ci` or build failure | Lockfile consistency, private dependencies, local path dependencies, and build scripts under Node.js 24 |
-| Archive/source-path error | Every configured source path, including optional theme folders and generated assets |
-| Host-key fingerprint mismatch | The verified key type negotiated by the action; compare available host keys with a trusted source and retain fingerprint verification |
-| Upload exits after connecting | Temp-directory existence/write access and its trailing slash; target write access |
-| Failure while extracting | Target path, permissions, and remote `tar` support |
-| HTTP check failure | Current remote files, site errors, redirects, and configured asset paths; some uploads may already have completed |
-
-For a broken code release, deploy a reviewed correction or known-good source through
-a new release, accounting for any files that must be removed separately. For a
-workflow-file fix, commit it and publish a new tag/release; rerunning an old release
-job retains its old workflow/source context.
-
-Use [full-site push](push-a-local-wordpress-site.md) only when the local database and
-complete runtime are the intended replacement for the target. Normal code releases
-leave production content and accounts in place.
+Use [full-site push](push-a-local-wordpress-site.md) only for a deliberately planned
+replacement of the database and full runtime. Code releases preserve live content
+and accounts.

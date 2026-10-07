@@ -26,7 +26,7 @@ and requires matching local and remote PHP major/minor versions.
 | `setup-theme` | Running DDEV, installed WordPress, Git, npm, `unzip`, a local With Base starter, and shared source repositories |
 | `sync-tools` | Running DDEV, installed WordPress, npm, `unzip`, a compatible theme with Patterns scripts, and shared source repositories |
 | `push-wordpress` | Running DDEV, installed single-site WordPress, `ssh`, `scp`, `tar`, `gzip`, `chmod`; npm and installed dependencies for buildable Git-tracked components |
-| `setup-deployment` | Git and an existing website repository; real setup also needs Bash, `gh`, `ssh`, `ssh-keygen`, `ssh-keyscan`, GitHub access, and an interactive terminal |
+| `setup-deployment` | WordPress website folder, Git, Bash, `gh`, SSH tools and existing SSH access; real setup needs GitHub admin access and Node.js 24 locally or in running DDEV |
 
 `setup-theme --dry-run` skips the local WordPress check but still resolves the
 project and reads its local source. `setup-deployment --dry-run` validates
@@ -121,22 +121,23 @@ repositories that you control or have permission to use.
 
 ## Release deployment project
 
-`setup-deployment` resolves the website Git root from the current directory. It
-accepts `github.com` origins in SSH, HTTPS, or `ssh://git@github.com/` form.
-The selected components must be tracked under:
+`setup-deployment` finds the website root containing `wp-content`. Git is initialized
+when needed. An existing website `origin` must refer to `github.com` in SSH, HTTPS,
+or `ssh://git@github.com/` form. The GitHub owner is chosen freely. Setup creates or
+reuses a private repository and requires administrator access for its settings.
 
-```text
-wp-content/themes/<theme>/
-wp-content/plugins/<plugin>/
-```
+Selected custom components live directly under `wp-content/themes`, `plugins`, or
+`mu-plugins`. npm components need a non-empty `package.json` `files` array and a
+lockfile when they have a build script. Source-only components use `git archive`.
+Nested repositories and symbolic links are rejected.
 
-The theme needs tracked `package.json`, `package-lock.json`, `style.css`,
-`functions.php`, `theme.json`, and a screenshot named `screenshot.png`, `.jpg`,
-`.jpeg`, or `.webp`. The optional plugin needs a tracked npm manifest, lockfile, and
-root PHP loader. Both components need an npm `build` script.
+Real setup requires Git author identity, a clean default-branch checkout, existing
+SSH access, a dedicated passphrase-free Ed25519 key outside the repository (or an
+available path for creation), and a trusted ED25519 server host key. The server
+needs a public IPv4 SSH endpoint, POSIX shell and standard file/tar tools. It needs
+write access below the configured WordPress root's `wp-content`, and regular
+WordPress/component root paths.
 
-Real setup needs a dedicated passphrase-free private key outside the repository,
-a trusted server host-key fingerprint, and permission to manage repository Actions
-secrets. The key's parent directory must already exist, including for dry runs.
-The deployment temp directory must already exist on the server and resolve outside
-the web root. Full details are in [Set up release deployments](../how-to-guides/set-up-release-deployments.md).
+Node.js 24 must be available locally or in the project's running DDEV web container
+for isolated release tests/builds. Setup preserves the existing DDEV configuration.
+See [Set up release deployments](../how-to-guides/set-up-release-deployments.md).

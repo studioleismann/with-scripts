@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "files": [
+    ".github/workflows/deploy-production.yml",
+    ".github/scripts/prepare-deployment.mjs",
+    ".github/scripts/remote-deployment.sh",
+    ".github/scripts/deployment.test.mjs",
+    "README.md",
+    "docs/deployment.md",
+    "docs/deployment-replacement-spec.md",
+    "docs/local-development.md",
+    "docs/repository-setup.md"
+  ]
+}

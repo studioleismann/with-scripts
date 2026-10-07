@@ -1,0 +1,62 @@
+# Local DDEV runtime files
+.ddev/.downloads/
+.ddev/.importdb*
+
+# Local and production configuration
+/.private/
+.with-scripts.json
+.htaccess*
+nginx.conf
+local-xdebuginfo.php
+wp-config*.php*
+.maintenance*
+
+# WordPress core
+/wp-admin/
+/wp-includes/
+/*.php
+/license.txt
+/readme.html
+/liesmich.html
+/favicon.ico
+
+# WordPress runtime and third-party code
+/wp-content/*
+{{COMPONENT_RULES}}
+
+# Archives, database dumps, and local backups
+*.sql
+*.sql.*
+*.tar
+*.tar.gz
+*.tgz
+/.with-scripts-backups/
+/.deploy-artifact/
+.well-known/*
+
+# Credentials and machine-local files
+.env
+.env.*
+!.env.example
+!.env.sample
+.npmrc
+.netrc
+auth.json
+credentials.json
+wp-cli.local.yml
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+.ssh/
+.aws/
+.ftp-deploy-sync-state.json
+.DS_Store
+._*
+node_modules/

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Website repository automation
+
+- Extend `setup-deployment` with a freely selected GitHub owner, versioned website
+  templates, isolated Node.js 24 validation, dedicated key authorization, resumable
+  GitHub configuration, and verified commit/push.
+- Preserve DDEV settings, custom files and existing keys; show template conflicts
+  as diffs and retain completed setup stages for retries.
+- Add regression tests for repository selection, retries, key preservation, and
+  the shared deployment transaction.
+
 ### Commands and terminal interface
 
 - Add the read-only `inspect-wordpress` environment report and `setup-wordpress`

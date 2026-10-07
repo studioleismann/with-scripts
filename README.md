@@ -46,7 +46,7 @@ colors. Outside an interactive terminal, the bare command prints help.
 | Apply the local WordPress profile | `configure-wordpress` | Updates local pages, settings, language files, and selected plugins |
 | Create a customer theme | `setup-theme` | Copies and personalizes With Base, synchronizes tools, builds, and activates locally |
 | Update shared tools | `sync-tools` | Builds local tool sources and updates theme/plugin runtimes |
-| Set up code deployment | `setup-deployment` | Creates a release workflow and configures SSH access and GitHub secrets |
+| Set up code deployment | `setup-deployment` | Creates/reuses a private website repo, validates release builds, and configures SSH and GitHub |
 | Publish a complete local site | `push-wordpress` | Replaces the explicit remote target after package review and backup |
 
 Use `with-scripts <command> --help` for supported options. The

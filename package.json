@@ -8,13 +8,14 @@
     "with-scripts": "./bin/with-scripts.mjs"
   },
   "scripts": {
-    "check": "node --check ./bin/with-scripts.mjs && node --check ./src/cli.mjs && node --check ./src/configure-wordpress.mjs && node --check ./src/inspect-wordpress.mjs && node --check ./src/pull-wordpress.mjs && node --check ./src/remote-wordpress.mjs && node --check ./src/setup-theme.mjs && node --check ./src/setup-wordpress.mjs && node --check ./src/sync-tools.mjs && node --check ./src/push-wordpress.mjs && bash -n ./src/push-remote.sh && php -l ./src/push-content.php && node --check ./src/setup-deployment.mjs && bash -n ./src/setup-deployment.sh",
+    "check": "node --check ./bin/with-scripts.mjs && node --check ./src/cli.mjs && node --check ./src/configure-wordpress.mjs && node --check ./src/inspect-wordpress.mjs && node --check ./src/pull-wordpress.mjs && node --check ./src/remote-wordpress.mjs && node --check ./src/setup-theme.mjs && node --check ./src/setup-wordpress.mjs && node --check ./src/sync-tools.mjs && node --check ./src/push-wordpress.mjs && bash -n ./src/push-remote.sh && php -l ./src/push-content.php && node --check ./src/setup-deployment.mjs && bash -n ./src/setup-deployment.sh && sh -n ./src/setup-deployment-authorize.sh && node --check ./templates/wordpress-site/.github/scripts/prepare-deployment.mjs && sh -n ./templates/wordpress-site/.github/scripts/remote-deployment.sh",
     "test": "node --test",
     "check:secrets": "node scripts/check-secrets.mjs",
     "hooks:install": "git config core.hooksPath .githooks",
-    "verify": "npm run check && npm test",
+    "verify": "npm run check && npm test && npm run test:deployment",
     "pack:dry-run": "npm pack --dry-run",
-    "prepack": "npm run verify"
+    "prepack": "npm run verify",
+    "test:deployment": "WITH_DEPLOY_FULL_TESTS=1 node --test templates/wordpress-site/.github/scripts/deployment.test.mjs"
   },
   "files": [
     "bin",

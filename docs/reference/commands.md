@@ -13,7 +13,7 @@ The bare command opens a menu when stdin and stdout are terminals, `CI` is unset
 and `TERM` is other than `dumb`. Otherwise it prints help. Arrow keys select an
 item, Enter confirms, and Space toggles plugins in the configuration multiselect.
 `NO_COLOR=1` disables colors. Shared prompts fall back to line-based input outside
-the interactive interface; real deployment setup requires a terminal.
+the interactive interface; deployment setup also accepts --yes with complete settings.
 
 Use `--help` or `-h` as the command's only option to get help before project access.
 Unknown commands and unsupported options fail. Value options below use `--name=value`;
@@ -33,7 +33,7 @@ by its Node wrapper. Closed input produces an actionable error.
 | `pull-wordpress`, `configure-wordpress`, `push-wordpress` | Document root containing `.ddev/config.yaml` |
 | `setup-theme` | DDEV WordPress project root or an immediate theme root under `wp-content/themes/` |
 | `sync-tools` | Project root or an immediate theme root; the current theme directory takes precedence over `--slug` |
-| `setup-deployment` | Website Git root or any subdirectory; `--demo` works from any folder |
+| `setup-deployment` | Website root containing wp-content, or any subdirectory; `--demo` works from any folder |
 
 ## Preview modes
 
@@ -45,7 +45,7 @@ by its Node wrapper. Closed input produces an actionable error.
 | `sync-tools --dry-run` | Reads local WordPress and runs existing runtime/source checks; skips builds, sync, installation, and activation |
 | `push-wordpress --dry-run` | Inventories the local site and runs the remote preflight; skips packaging and remote writes |
 | `push-wordpress --prepare-only` | Builds and exports a private local package; retains its directory; skips all target connections |
-| `setup-deployment --dry-run` | Validates local inputs and prints the rendered workflow; skips SSH, GitHub, key creation, and writes |
+| `setup-deployment --dry-run` | Validates a temporary source tree and prints the plan; may resolve local SSH settings; skips network access and project/service writes |
 | `setup-deployment --demo` | Simulates the five stages with example values |
 
 These modes have different requirements. WordPress inspection loads its runtime,
@@ -267,45 +267,39 @@ for requirements, the exact verification scope, status values, and recovery.
 ## `setup-deployment`
 
 ```sh
+with-scripts setup-deployment
+with-scripts setup-deployment --repo=example-owner/example.org --dry-run
 with-scripts setup-deployment --demo
-with-scripts setup-deployment --help
 ```
-
-Use [the complete preview command](../how-to-guides/set-up-release-deployments.md#preview-locally)
-to supply a project-specific plan with `--dry-run`.
 
 | Option | Effect/default |
 | --- | --- |
-| `--demo` | Five simulated stages using example values; use on its own |
-| `--dry-run` | Local checks and complete workflow preview |
-| `--theme=<slug>` | Selected theme; fallback is the containing tracked theme or the only tracked theme |
-| `--plugin=<slug\|none>` | Optional built plugin; fallback `none` |
-| `--root=<path>` | Absolute production WordPress root |
-| `--temp=<path>` | Existing writable temp directory outside the web root; normalized with trailing slash |
-| `--url=<https-url>` | HTTPS domain-root URL without credentials, port, query, or fragment |
-| `--host=<hostname>` | Actual SSH hostname or IPv4 address for GitHub Actions |
-| `--user=<username>` | Hosting SSH user |
-| `--port=<port>` | Integer from 1 to 65535; fallback `22` |
-| `--key-file=<path>` | Dedicated private-key path outside the repository; fallback `~/.ssh/<owner>-<repository>-deployment` |
-| `--hosting-url=<https-url>` | Hosting panel URL for authorizing the public key |
-| `--plugin-main=<file>` | Tracked root PHP loader; fallback `<plugin>.php` |
-| `--plugin-health=<path>` | Public static plugin file inside `build/` used by the HTTP check |
+| `--repo=<owner/name>` | Freely chosen GitHub owner and repository; inferred from existing origin or asked interactively |
+| `--ssh=<alias>` | Existing setup SSH connection; falls back to saved pull target and resolves through `ssh -G` |
+| `--component=<path>` | Repeatable owned theme/plugin/MU-plugin path; existing tracked components are retained |
+| `--theme=<slug>` | Shorthand for an owned theme |
+| `--plugin=<slug\|none>` | Shorthand for an owned plugin |
+| `--root=<path>` | Absolute production WordPress root; falls back to saved pull settings |
+| `--url=<https-url>` | HTTPS domain-root URL; falls back to saved pull settings |
+| `--host=<hostname>` | Public SSH hostname/IP; otherwise resolved from the SSH alias |
+| `--user=<username>` | SSH account; otherwise resolved from the SSH alias |
+| `--port=<port>` | Integer 1–65535; resolved from alias, otherwise 22 |
+| `--key-file=<path>` | Dedicated private-key path outside Git; default `~/.ssh/<owner>-<repository>-deployment` |
+| `--fingerprint=<SHA256:...>` | Trusted ED25519 host fingerprint; otherwise use a known host key or prompt |
+| `--dry-run` | Local plan, exclusions and template conflict checks; no project/service changes |
+| `--yes` | Accept the setup plan with complete inputs; usable without a terminal |
+| `--replace-secrets` | Explicitly replace existing deployment secrets when saved progress does not match |
+| `--demo` | Five simulated stages; use on its own from any folder |
 
-Explicit options override `wordpressDeployment`, then inferred/default values.
-Normal mode prompts only for missing values. Dry run requires all unresolved inputs
-as options or saved values, even in a terminal. Plugin file options require a plugin.
-Paths accept normal Unix path characters and reject `.`/`..` segments.
+Explicit inputs override saved deployment settings, then inferred pull/SSH values.
+The GitHub owner is never fixed by the package. An existing origin takes precedence
+over a stale saved repository; an explicit conflicting `--repo` stops setup.
 
-Local validation checks the GitHub origin, tracked component files/build scripts,
-screenshot, key path, and workflow conflicts. It preserves a differing
-`deploy-production.yml` and stops for another YAML workflow referencing `HOST` or
-`KEY` secrets. An identical generated workflow can be reused.
+Real setup validates the release build in a temporary copy, authorizes a dedicated
+key, verifies SSH/preflight and GitHub settings, then commits/pushes the reviewed
+website source. Generated files carry template version/hash metadata. Retrying
+reuses existing resources and successful secret writes. Release publication is a
+separate production action.
 
-Real setup verifies GitHub access, guides key authorization, checks a fingerprint
-against the operator's trusted value, and tests the dedicated key and target paths.
-After exact confirmation `SET SECRETS <owner>/<repository>`, it writes/lists the five
-Actions secrets, writes the workflow, and saves public settings. Setup leaves any
-created key and previously written secrets available if a later stage fails.
-
-See [Set up release deployments](../how-to-guides/set-up-release-deployments.md)
-and [project templates](project-templates.md) for the generated workflow's behavior.
+See [Set up a website repository and release deployment](../how-to-guides/set-up-release-deployments.md)
+for prerequisites, secret replacement, template updates, and recovery.
