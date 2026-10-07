@@ -1,5 +1,34 @@
 import { runCapture } from './cli.mjs';
 
+// Keep a working default; otherwise inspect the available versioned CLI binaries.
+const PHP_CLI_SETUP = String.raw`PHP_CLI=""
+PHP_CLI_VERSION_ID=0
+PHP_CLI_CANDIDATES=(php php-cli)
+IFS=: read -r -a PHP_CLI_DIRECTORIES <<< "$PATH"
+for PHP_CLI_DIRECTORY in "${'$'}{PHP_CLI_DIRECTORIES[@]}"; do
+  for PHP_CLI_CANDIDATE in "${'$'}{PHP_CLI_DIRECTORY:-.}"/php[0-9]*; do
+    PHP_CLI_NAME="${'$'}{PHP_CLI_CANDIDATE##*/}"
+    if [[ "$PHP_CLI_NAME" =~ ^php[0-9]+([.][0-9]+)?(-cli)?$ ]] && [ -x "$PHP_CLI_CANDIDATE" ]; then
+      PHP_CLI_CANDIDATES+=("$PHP_CLI_CANDIDATE")
+    fi
+  done
+done
+for PHP_CLI_CANDIDATE in "${'$'}{PHP_CLI_CANDIDATES[@]}"; do
+  PHP_CLI_PATH="$(command -v "$PHP_CLI_CANDIDATE")" || continue
+  PHP_CLI_CANDIDATE_VERSION="$("$PHP_CLI_PATH" -r 'if (PHP_SAPI !== "cli" || PHP_VERSION_ID < 50400) { exit(1); } echo PHP_VERSION_ID;' 2>/dev/null)" || continue
+  [[ "$PHP_CLI_CANDIDATE_VERSION" =~ ^[0-9]+$ ]] || continue
+  if [ "$PHP_CLI_CANDIDATE_VERSION" -gt "$PHP_CLI_VERSION_ID" ]; then
+    PHP_CLI="$PHP_CLI_PATH"
+    PHP_CLI_VERSION_ID="$PHP_CLI_CANDIDATE_VERSION"
+  fi
+  if [ "$PHP_CLI_CANDIDATE" = php ]; then break; fi
+done
+if [ -z "$PHP_CLI" ]; then
+  echo "No working PHP CLI (5.4 or newer) was found. Add a PHP CLI executable to the remote PATH and run the command again." >&2
+  exit 1
+fi
+`;
+
 export const FILE_EXCLUDES = [
   './.ddev',
   './.git',
@@ -102,16 +131,21 @@ function rootShellHelpers() {
     *) echo "Invalid remote WordPress root." >&2; exit 1 ;;
   esac
   cd "$ROOT"
+  test -r wp-config.php || { echo "Remote wp-config.php is not readable. Check the remote WordPress root." >&2; exit 1; }
+  test -d wp-admin || { echo "Remote wp-admin directory is missing." >&2; exit 1; }
+  test -d wp-content || { echo "Remote wp-content directory is missing." >&2; exit 1; }
+  test -d wp-includes || { echo "Remote wp-includes directory is missing." >&2; exit 1; }
 }`;
 }
 
 function databaseShellHelpers() {
   const D = '$';
-  return String.raw`read_constant() {
+  return String.raw`${PHP_CLI_SETUP}
+read_constant() {
   if command -v wp >/dev/null 2>&1; then
     wp config get "$1" --type=constant 2>/dev/null && return
   fi
-  php -r '
+  "$PHP_CLI" -r '
     $name = $argv[1];
     $config = file_get_contents("wp-config.php");
     $pattern = "/define\\s*\\(\\s*[\"'"'"']" . preg_quote($name, "/") . "[\"'"'"']\\s*,\\s*[\"'"'"']([^\"'"'"']*)[\"'"'"']\\s*\\)/";
@@ -148,7 +182,7 @@ function tablePrefixShellHelper() {
   if command -v wp >/dev/null 2>&1; then
     wp config get table_prefix --type=variable 2>/dev/null && return
   fi
-  php -r '
+  "$PHP_CLI" -r '
     $config = file_get_contents("wp-config.php");
     $variable = "$" . "table_prefix";
     $pattern = "/" . preg_quote($variable, "/") . "\\s*=\\s*[\"'"'"']([A-Za-z0-9_]+)[\"'"'"']/";
@@ -167,11 +201,8 @@ export function buildPreflightScript() {
   return String.raw`set -eu
 ${rootShellHelpers()}
 resolve_root "$1"
-test -r wp-config.php || { echo "Remote wp-config.php is not readable." >&2; exit 1; }
-test -d wp-admin || { echo "Remote wp-admin directory is missing." >&2; exit 1; }
-test -d wp-content || { echo "Remote wp-content directory is missing." >&2; exit 1; }
-test -d wp-includes || { echo "Remote wp-includes directory is missing." >&2; exit 1; }
-for required_command in php mysqldump gzip tar; do
+${PHP_CLI_SETUP}
+for required_command in mysqldump gzip tar; do
   command -v "$required_command" >/dev/null || {
     printf 'Required remote command is unavailable: %s.\n' "$required_command" >&2
     exit 1
@@ -188,7 +219,7 @@ resolve_root "$1"
 ${databaseShellHelpers()}
 ${tablePrefixShellHelper()}
 
-PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
+PHP_VERSION="$("$PHP_CLI" -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
 LIVE_URL="$(mysql_value "SELECT option_value FROM ${'$'}{TABLE_PREFIX}options WHERE option_name='home' LIMIT 1")"
 DB_VERSION_RAW="$(mysql_value "SELECT VERSION()")"
 DB_COMMENT="$(mysql_value "SELECT @@version_comment")"
@@ -196,7 +227,7 @@ DB_ENGINE="mysql"
 case "$DB_COMMENT $DB_VERSION_RAW" in
   *MariaDB*|*mariadb*) DB_ENGINE="mariadb" ;;
 esac
-DB_VERSION="$(php -r '$parts = explode(".", $argv[1]); echo $parts[0] . "." . $parts[1];' "$DB_VERSION_RAW")"
+DB_VERSION="$("$PHP_CLI" -r '$parts = explode(".", $argv[1]); echo $parts[0] . "." . $parts[1];' "$DB_VERSION_RAW")"
 
 printf 'WITH_SCRIPTS_PHP_VERSION=%s\n' "$PHP_VERSION"
 printf 'WITH_SCRIPTS_DATABASE_ENGINE=%s\n' "$DB_ENGINE"
@@ -215,13 +246,15 @@ ${tablePrefixShellHelper()}
 
 echo "=== Remote WordPress ==="
 printf 'Root: %s\n' "$PWD"
-php -r 'include "wp-includes/version.php"; echo "WordPress " . $wp_version . PHP_EOL;'
+"$PHP_CLI" -r 'include "wp-includes/version.php"; echo "WordPress " . $wp_version . PHP_EOL;'
 if command -v wp >/dev/null 2>&1; then echo "WP-CLI: available"; else echo "WP-CLI: not available"; fi
 
 echo
-echo "=== PHP CLI ==="
-php -v
-php -r '
+echo "=== PHP CLI (SSH) ==="
+printf 'Executable: %s\n' "$PHP_CLI"
+echo "Website PHP version: not determined by this SSH inspection."
+"$PHP_CLI" -v
+"$PHP_CLI" -r '
   foreach (["memory_limit", "upload_max_filesize", "post_max_size", "max_execution_time", "max_input_vars"] as $key) {
     echo $key . "=" . ini_get($key) . PHP_EOL;
   }
@@ -229,7 +262,7 @@ php -r '
 
 echo
 echo "=== PHP extensions ==="
-php -m
+"$PHP_CLI" -m
 
 echo
 echo "=== WordPress URLs ==="

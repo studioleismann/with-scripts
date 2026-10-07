@@ -25,6 +25,11 @@
 
 ### Pull and push behavior
 
+- Detect a working remote PHP CLI for inspection, setup, and pull when `php` points
+  to a CGI or incompatible binary, including IONOS hosting. Preserve a working
+  default, otherwise choose the highest available CLI version from `PATH`.
+  Identify the inspection's CLI executable separately from web-server PHP and
+  validate the WordPress root before reading configuration or connecting to its database.
 - Stream pull databases/files into private local temporary storage, validate both
   downloads, show received bytes, and stop streams after 90 seconds without progress.
   Remote pull scripts create no archive files on the host.
@@ -32,6 +37,8 @@
   roots for inspection, setup, and pull; full-site push requires an absolute root.
   Remove the pull preflight's unnecessary remote `awk` dependency.
 - Respect DDEV `project_tld` when deriving local pull URLs.
+- Guard existing `WP_DEBUG` definitions during pull so DDEV's debug setting is
+  preserved without PHP constant redefinition warnings.
 - Create a database snapshot before local replacement. Preserve tracked files through
   extraction and preserve complete Git-managed plugin/theme packages. Replace matching
   untracked packages completely to avoid mixed versions.

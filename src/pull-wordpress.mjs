@@ -569,10 +569,11 @@ if ( getenv( 'IS_DDEV_PROJECT' ) === 'true' && is_readable( __DIR__ . '/wp-confi
 `);
   }
 
-  for (const name of ['DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST']) {
+  for (const name of ['DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST', 'WP_DEBUG']) {
     if (new RegExp(`defined\\s*\\(\\s*['"]${name}['"]`).test(contents)) continue;
     const definition = new RegExp(`^(\\s*)define\\s*\\(\\s*(['"])${name}\\2\\s*,`, 'm');
     if (!definition.test(contents)) {
+      if (name === 'WP_DEBUG') continue;
       throw new Error(`Could not safely patch ${name} in wp-config.php.`);
     }
     contents = contents.replace(definition, `$1defined( '${name}' ) || define( '${name}',`);

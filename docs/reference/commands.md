@@ -65,6 +65,12 @@ availability, PHP CLI version/settings/extensions, WordPress URLs, and database
 version/engine/charset/collation. Successful inspection can save the SSH target and
 root in `.with-scripts.json`. The remote scripts perform read operations.
 
+The report names the selected PHP CLI executable and explicitly distinguishes it
+from the website's web-server PHP version. A working `php` CLI keeps priority;
+otherwise inspection automatically uses the highest working versioned CLI found
+in the remote `PATH`. The same discovery supports setup and pull. An incorrect
+WordPress root stops before PHP or database access with a targeted path error.
+
 ## `setup-wordpress`
 
 ```sh

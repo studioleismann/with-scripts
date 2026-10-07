@@ -40,6 +40,15 @@ uses `mysqldump`, `gzip`, and `tar`. SSH runs with `BatchMode=yes` and a 15-seco
 connection timeout. Establish host trust and key authentication before starting.
 Use a local SSH alias for custom ports and agent settings.
 
+Inspection, setup, and pull test that `php` is a working CLI interpreter supporting
+their PHP 5.4-or-newer helper syntax. If that fails, they discover `php-cli` and
+versioned `phpX.Y`, `phpXY`, and `phpX.Y-cli` executables in the remote `PATH` and
+use the highest working CLI version. A working default keeps priority. This handles
+hosting such as IONOS, where `php` can point to an old CGI binary. Discovery changes
+no server configuration and creates no remote files. Inspection identifies the
+selected executable explicitly; its version describes SSH execution, while the
+website's web-server PHP version requires separate verification.
+
 Remote WP-CLI is optional for inspection, setup, and pull. If reading configuration
 through WP-CLI fails, PHP reads literal database constants and the table prefix from
 `wp-config.php`. Configurations built from environment variables or includes may

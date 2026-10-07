@@ -186,7 +186,7 @@ test('mirror cleanup removes local-only files while preserving Git packages and 
   }
 });
 
-test('wp-config patch is safe and idempotent', () => {
+test('wp-config patch is safe and idempotent without optional WP_DEBUG', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'with-scripts-test-'));
   const configPath = path.join(root, 'wp-config.php');
   try {
@@ -202,6 +202,59 @@ define( 'DB_HOST', 'db.example.com' );
     assert.equal(readFileSync(configPath, 'utf8'), first);
     assert.match(first, /wp-config-ddev\.php/);
     assert.match(first, /defined\( 'DB_PASSWORD' \) \|\| define/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('wp-config patch preserves WP_DEBUG values without redefinition warnings', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'with-scripts-test-'));
+  const configPath = path.join(root, 'wp-config.php');
+  try {
+    writeFileSync(path.join(root, 'wp-config-ddev.php'), `<?php
+defined( 'WP_DEBUG' ) || define( 'WP_DEBUG', getenv( 'WP_DEBUG' ) === false || getenv( 'WP_DEBUG' ) === 'true' );
+`);
+    for (const definition of [
+      { source: "define( 'WP_DEBUG', false );", value: false },
+      { source: 'define("WP_DEBUG", true);', value: true },
+      { source: "if ( ! defined( 'WP_DEBUG' ) ) {\n    define( 'WP_DEBUG', false );\n}", value: false },
+    ]) {
+      writeFileSync(configPath, `<?php
+define( 'DB_NAME', 'prod' );
+define( 'DB_USER', 'prod' );
+define( 'DB_PASSWORD', 'secret' );
+define( 'DB_HOST', 'db.example.com' );
+${definition.source}
+echo json_encode( WP_DEBUG );
+`);
+      patchWpConfig(configPath);
+      const first = readFileSync(configPath, 'utf8');
+      patchWpConfig(configPath);
+      assert.equal(readFileSync(configPath, 'utf8'), first);
+      if (definition.source.startsWith('if')) {
+        assert.ok(first.includes(definition.source));
+      }
+
+      for (const [isDdev, debug, expected] of [
+        ['true', 'true', true],
+        ['true', 'false', false],
+        ['false', 'true', definition.value],
+      ]) {
+        const result = spawnSync('php', [
+          '-d', 'error_reporting=-1',
+          '-d', 'display_errors=stderr',
+          '-d', 'log_errors=0',
+          configPath,
+        ], {
+          encoding: 'utf8',
+          env: { ...process.env, IS_DDEV_PROJECT: isDdev, WP_DEBUG: debug },
+        });
+        const context = `${definition.source}: IS_DDEV_PROJECT=${isDdev}, WP_DEBUG=${debug}`;
+        assert.equal(result.status, 0, `${context}: ${result.stderr}`);
+        assert.equal(result.stderr, '', context);
+        assert.equal(result.stdout, JSON.stringify(expected), context);
+      }
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
