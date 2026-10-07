@@ -78,7 +78,7 @@ test('deployment demo works in an empty folder without project or service access
 
 const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
 
-function website(t, { repository = false, origin = 'git@github.com:example-owner/example.org.git' } = {}) {
+function website(t, { repository = false, origin = 'git@github.com:example-owner/example.org.git', hostType = 'ed25519' } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'with-scripts-website-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const project = path.join(root, 'site');
@@ -97,7 +97,9 @@ function website(t, { repository = false, origin = 'git@github.com:example-owner
   writeFileSync(path.join(root, 'gitconfig'), '[user]\n name = Example\n email = example@example.org\n[commit]\n gpgsign = false\n[init]\n defaultBranch = main\n');
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), TEST_ROOT: root, REAL_GIT: realGit, GH_PROMPT_DISABLED: '1', CI: '1', NO_COLOR: '1' };
   delete env.NODE_TEST_CONTEXT;
-  execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'example host', '-f', path.join(root, 'host-key')]);
+  execFileSync('ssh-keygen', ['-q', '-t', hostType, ...(hostType === 'rsa' ? ['-b', '2048'] : []), '-N', '', '-C', 'example host', '-f', path.join(root, 'host-key')]);
+  const hostFingerprint = execFileSync('ssh-keygen', ['-lf', path.join(root, 'host-key.pub'), '-E', 'sha256'], { encoding: 'utf8' }).trim().split(/\s+/)[1];
+  writeFileSync(path.join(root, 'host-fingerprint'), hostFingerprint);
   writeFileSync(path.join(root, 'known_hosts'), `server.example.org ${readFileSync(path.join(root, 'host-key.pub'), 'utf8')}`);
   writeFileSync(path.join(root, 'state.json'), JSON.stringify({ repository, owner: 'example-owner/example.org', secrets: {}, variables: {}, head: '' }), { mode: 0o600 });
   const shared = `import fs from 'node:fs'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; const root=process.env.TEST_ROOT; const args=process.argv.slice(2); const stateFile=path.join(root,'state.json'); const state=JSON.parse(fs.readFileSync(stateFile,'utf8')); fs.appendFileSync(path.join(root,'calls'), JSON.stringify([path.basename(process.argv[1]), ...args])+'\\n');\n`;
@@ -126,6 +128,16 @@ fs.writeFileSync(stateFile,JSON.stringify(state));
 `, { mode: 0o755 });
   writeFileSync(path.join(bin, 'ssh'), `#!${process.execPath}\n${shared}
 if(args[0]==='-G') { console.log('hostname server.example.org\\nuser example-account\\nport 22\\nuserknownhostsfile '+path.join(root,'known_hosts'));process.exit(0); }
+if(args.includes('-vv')) {
+ if(process.env.FAIL_HOST_PROBE){console.error('Connection timed out');process.exit(255);}
+ const keyType=fs.readFileSync(path.join(root,'host-key.pub'),'utf8').split(' ')[0];
+ const offered=process.env.SERVER_ALGORITHMS || (keyType==='ssh-rsa'?'rsa-sha2-512,rsa-sha2-256':keyType==='ssh-ed25519'?keyType:'ssh-ed25519,'+keyType);
+ const selected=args.find(arg=>arg.startsWith('HostKeyAlgorithms=')).split('=')[1].split(',').find(algo=>offered.split(',').includes(algo));
+ console.error('debug2: peer server KEXINIT proposal\\ndebug2: host key algorithms: '+offered+'\\ndebug1: kex: host key algorithm: '+selected+'\\ndebug1: Server host key: '+keyType+' '+fs.readFileSync(path.join(root,'host-fingerprint'),'utf8'));
+ process.exit(255);
+}
+const pinned=args.find(arg=>arg.startsWith('UserKnownHostsFile='));
+if(pinned) fs.writeFileSync(path.join(root,'pinned-host'),fs.readFileSync(pinned.slice('UserKnownHostsFile='.length)));
 if(args.at(-1)==='true') { process.exit(fs.existsSync(path.join(root,'authorized'))?0:1); }
 if(args.at(-1).includes('preflight')) {
  if(process.env.FAIL_PREFLIGHT) process.exit(1);
@@ -135,6 +147,10 @@ const publicKey=args.at(-1).match(/sh -s -- '([^']+)'/)?.[1];
 if(!publicKey) {console.error('Unexpected SSH call');process.exit(2);}
 const result=spawnSync('sh',['-s','--',publicKey],{input:fs.readFileSync(0),stdio:['pipe','inherit','inherit'],env:{...process.env,HOME:path.join(root,'server')}});
 if(result.status===0)fs.writeFileSync(path.join(root,'authorized'),'yes');process.exit(result.status);
+`, { mode: 0o755 });
+  writeFileSync(path.join(bin, 'ssh-keyscan'), `#!${process.execPath}\n${shared}
+if(process.env.FAIL_HOST_SCAN)process.exit(1);
+console.log('server.example.org '+fs.readFileSync(path.join(root,process.env.SCANNED_KEY || 'host-key.pub'),'utf8').trim());
 `, { mode: 0o755 });
   writeFileSync(path.join(bin, 'ddev'), `#!${process.execPath}\n${shared}
 if(args.join(' ')==='exec node --version'){if(process.env.FAIL_DDEV_VERSION)process.exit(1);console.log('v24.0.0');process.exit(0);}
@@ -151,7 +167,7 @@ if(args[1]==='sh'){
     if (origin) execFileSync(realGit, ['remote', 'add', 'origin', origin], { cwd: project, env });
   }
   const args = ['setup-deployment', '--repo=example-owner/example.org', '--theme=example-theme', '--ssh=example-site', `--root=${remoteRoot}`, '--url=https://example.org', `--key-file=${root}/keys/deployment`];
-  return { root, project, server, remoteRoot, env, args };
+  return { root, project, server, remoteRoot, env, args, hostFingerprint };
 }
 
 for (const existing of [false, true]) {
@@ -160,7 +176,7 @@ for (const existing of [false, true]) {
     const before = readdirSync(fixture.project);
     const result = spawnSync(process.execPath, [cli, ...fixture.args, '--dry-run'], { cwd: fixture.project, env: fixture.env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /wordpress-site 1.0.0/);
+    assert.match(result.stdout, /wordpress-site 1.0.1/);
     assert.match(result.stdout, /example-owner\/example.org/);
     assert.deepEqual(readdirSync(fixture.project), before);
     assert.equal(existsSync(path.join(fixture.root, 'keys/deployment')), false);
@@ -349,6 +365,70 @@ test('revoked known-host identity is preserved and stops key authorization', (t)
   assert.equal(existsSync(path.join(fixture.root, 'keys/deployment')), false);
 });
 
+for (const scenario of ['multiple trusted host keys', 'RSA-SHA2 host', 'provider-trusted ECDSA host']) {
+  test(`deployment selects the Actions host key: ${scenario}`, (t) => {
+    const fixture = website(t, { hostType: scenario === 'RSA-SHA2 host' ? 'rsa' : 'ecdsa' });
+    const knownFile = path.join(fixture.root, 'known_hosts');
+    if (scenario !== 'RSA-SHA2 host') {
+      execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', path.join(fixture.root, 'other-host')]);
+      const other = `server.example.org ${readFileSync(path.join(fixture.root, 'other-host.pub'), 'utf8')}`;
+      writeFileSync(knownFile, other + (scenario === 'multiple trusted host keys' ? readFileSync(knownFile, 'utf8') : ''));
+    }
+    const originalKnown = readFileSync(knownFile, 'utf8');
+    const args = [...fixture.args, '--yes'];
+    if (scenario === 'provider-trusted ECDSA host') args.push(`--fingerprint=${fixture.hostFingerprint}`);
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd: fixture.project, env: fixture.env, encoding: 'utf8', timeout: 30000 });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(JSON.parse(readFileSync(path.join(fixture.root, 'state.json'), 'utf8')).secrets.FINGERPRINT, fixture.hostFingerprint);
+    assert.equal(readFileSync(knownFile, 'utf8'), originalKnown);
+    const hostKey = readFileSync(path.join(fixture.root, 'host-key.pub'), 'utf8').trim().split(/\s+/).slice(0, 2).join(' ');
+    assert.equal(readFileSync(path.join(fixture.root, 'pinned-host'), 'utf8'), `server.example.org ${hostKey}\n`);
+    const calls = readFileSync(path.join(fixture.root, 'calls'), 'utf8').trim().split('\n').map(JSON.parse);
+    const probe = calls.find(([command, ...args]) => command === 'ssh' && args.includes('-vv'));
+    for (const option of ['StrictHostKeyChecking=yes', 'PreferredAuthentications=none', 'PubkeyAuthentication=no', 'PasswordAuthentication=no', 'KbdInteractiveAuthentication=no', 'IdentityAgent=none']) assert.ok(probe.includes(option), option);
+    const algorithm = scenario === 'RSA-SHA2 host' ? 'rsa-sha2-256' : 'ecdsa-sha2-nistp256';
+    const connections = calls.filter(([command, ...args]) => command === 'ssh' && !args.includes('-G') && !args.includes('-vv'));
+    assert.ok(connections.length > 0);
+    for (const call of connections) assert.ok(call.includes(`HostKeyAlgorithms=${algorithm}`));
+    assert.equal(calls.some(([command]) => command === 'ssh-keyscan'), scenario === 'provider-trusted ECDSA host');
+  });
+}
+
+for (const scenario of ['only another key is trusted', 'wrong saved fingerprint', 'failed key scan', 'changed scan key', 'failed negotiation', 'legacy host key', 'host certificate']) {
+  test(`host verification stops before credentials or service changes: ${scenario}`, (t) => {
+    const fixture = website(t, { hostType: 'ecdsa' });
+    execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', path.join(fixture.root, 'other-host')]);
+    writeFileSync(path.join(fixture.root, 'known_hosts'), `server.example.org ${readFileSync(path.join(fixture.root, 'other-host.pub'), 'utf8')}`);
+    const args = [...fixture.args, '--yes'];
+    const env = { ...fixture.env };
+    let expected = /Supply --fingerprint.*ecdsa-sha2-nistp256/;
+    if (scenario === 'wrong saved fingerprint') {
+      const other = execFileSync('ssh-keygen', ['-lf', path.join(fixture.root, 'other-host.pub'), '-E', 'sha256'], { encoding: 'utf8' }).trim().split(/\s+/)[1];
+      writeFileSync(path.join(fixture.project, '.with-scripts.json'), JSON.stringify({ wordpressDeployment: { fingerprint: other } }));
+      expected = /ecdsa-sha2-nistp256.*does not match.*retry with --fingerprint/;
+    }
+    if (scenario === 'failed key scan' || scenario === 'changed scan key') {
+      args.push(`--fingerprint=${fixture.hostFingerprint}`);
+      if (scenario === 'failed key scan') env.FAIL_HOST_SCAN = '1';
+      else env.SCANNED_KEY = 'other-host.pub';
+      expected = scenario === 'failed key scan' ? /Could not retrieve the deployment host key/ : /retrieved deployment host key does not match/;
+    }
+    if (scenario === 'failed negotiation') { env.FAIL_HOST_PROBE = '1'; expected = /Could not determine the deployment host key/; }
+    if (scenario === 'legacy host key') { env.SERVER_ALGORITHMS = 'ssh-dss,ssh-ed25519'; expected = /Actions select ssh-dss.*requires a plain/; }
+    if (scenario === 'host certificate') { env.SERVER_ALGORITHMS = 'ecdsa-sha2-nistp256,ssh-ed25519-cert-v01@openssh.com'; expected = /Actions select ssh-ed25519-cert.*requires a plain/; }
+    const originalFiles = readdirSync(fixture.project);
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd: fixture.project, env, encoding: 'utf8', timeout: 30000 });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, expected);
+    assert.deepEqual(readdirSync(fixture.project), originalFiles);
+    assert.equal(existsSync(path.join(fixture.root, 'keys/deployment')), false);
+    assert.equal(existsSync(path.join(fixture.root, 'authorized')), false);
+    const calls = readFileSync(path.join(fixture.root, 'calls'), 'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(calls.some(([command, kind, action]) => command === 'gh' && (kind === 'repo' && action === 'create' || ['secret', 'variable'].includes(kind) && action === 'set')), false);
+    assert.equal(calls.some(([command, ...args]) => command === 'ssh' && !args.includes('-G') && !args.includes('-vv')), false);
+  });
+}
+
 test('versioned template refresh updates untouched generated files and preserves a custom ignore rule', (t) => {
   const fixture = website(t);
   const first = spawnSync(process.execPath, [cli, ...fixture.args, '--yes'], { cwd: fixture.project, env: fixture.env, encoding: 'utf8', timeout: 30000 });
@@ -369,7 +449,7 @@ test('versioned template refresh updates untouched generated files and preserves
   assert.equal(retry.status, 0, retry.stdout + retry.stderr);
   assert.equal(readFileSync(path.join(fixture.project, script), 'utf8'), readFileSync(path.join(packageRoot, 'templates/wordpress-site', script), 'utf8'));
   assert.match(readFileSync(ignore, 'utf8'), /^# Custom rule added after setup/);
-  assert.equal(JSON.parse(readFileSync(metadataFile)).version, '1.0.0');
+  assert.equal(JSON.parse(readFileSync(metadataFile)).version, '1.0.1');
 });
 
 

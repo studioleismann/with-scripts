@@ -15,7 +15,7 @@ one workflow, and three deployment scripts including their integration tests.
 
 | Field | Checked-in template value |
 | --- | --- |
-| Template version | `1.0.0` |
+| Template version | `1.0.1` |
 | Trigger | `release`, activity `published`, including published prereleases |
 | Checkout | `github.event.release.tag_name` |
 | Token permissions | `contents: read` |

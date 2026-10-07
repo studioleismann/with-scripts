@@ -108,6 +108,8 @@ try {
       if (action && match.index >= lineStart + action[1].length && match.index + match[0].length <= lineStart + action[1].length + action[2].length) continue;
       const address = match[0].toLowerCase();
       const domain = match[1].toLowerCase();
+      // Exact OpenSSH protocol identifiers are public names, not email addresses.
+      if (/^(?:rsa-sha2-(?:256|512)|ssh-(?:rsa|dss|ed25519)|ecdsa-sha2-nistp(?:256|384|521))-cert-v01@openssh\.com$/.test(address)) continue;
       if (/^(?:[a-z0-9-]+\.)*example\.(?:com|org|net)$/.test(domain) || /\.(?:example|invalid|test)$/.test(domain)) continue;
       if (domain === 'users.noreply.github.com' || address === 'noreply@github.com' || /^git@(?:github|gitlab)\.com$/.test(address)) continue;
       findings.push({ kind: 'non-example email address', offset: match.index });

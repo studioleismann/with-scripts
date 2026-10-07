@@ -13,7 +13,11 @@ Create these GitHub Actions repository secrets:
 - `USERNAME`: dedicated SSH deployment account;
 - `KEY`: private deployment key;
 - `PORT`: SSH port; and
-- `FINGERPRINT`: exact SHA256 fingerprint of the server's ED25519 host key.
+- `FINGERPRINT`: exact SHA256 fingerprint of the server host key selected by
+  the deployment Actions. The current Actions prefer ECDSA over RSA and Ed25519.
+  Confirm that key's fingerprint with the hosting provider or server console;
+  a regular OpenSSH login may select a different key. The deployment login key
+  and the server host key have separate fingerprints.
 
 Create these GitHub Actions repository variables:
 
@@ -31,9 +35,10 @@ not need Git, Node.js, npm, `rsync`, or SFTP. The WordPress root, `wp-content`,
 and the standard component roots must not be symbolic links.
 
 `HOST` must resolve to a public IPv4 address that accepts SSH connections on
-`PORT`. The workflow uses the same IPv4 and connection-timeout settings for
-host-key verification and every subsequent SSH command. A failed host-key scan
-and a fingerprint mismatch produce separate error messages.
+`PORT`. The workflow checks IPv4 connectivity before uploading. Every SCP and
+SSH Action verifies `FINGERPRINT` during its SSH handshake. If a handshake reports
+a fingerprint mismatch, verify the host-key type selected by the Actions against
+the provider's trusted fingerprint before updating the secret.
 
 ## Define deployable components
 

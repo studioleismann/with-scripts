@@ -332,7 +332,7 @@ export async function setupDeployment(args = []) {
       const found = spawnSync('ssh-keygen', ['-F', lookup, '-f', file], { encoding: 'utf8' });
       if (/^@revoked /m.test(found.stdout || '')) throw new Error('A server key is marked revoked in known_hosts. Resolve the revoked host identity before setup.');
       for (const line of (found.stdout || '').split('\n')) {
-        const key = line.match(/^\S+ (ssh-ed25519 [A-Za-z0-9+/=]+)(?: |$)/)?.[1];
+        const key = line.match(/^\S+ ((?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)) [A-Za-z0-9+/=]+)(?: |$)/)?.[1];
         if (!key) continue;
         const candidateKey = path.join(temporary, 'server-key.pub');
         writeFileSync(candidateKey, `${key}\n`, { mode: 0o600 });
@@ -340,24 +340,51 @@ export async function setupDeployment(args = []) {
         if (fingerprint.status === 0) hostKeys.set(fingerprint.stdout.trim().split(/\s+/)[1], key);
       }
     }
-    if (!settings.fingerprint && hostKeys.size === 1) settings.fingerprint = [...hostKeys.keys()][0];
-    if (!settings.fingerprint && interactive && !values.yes) settings.fingerprint = await askRequired(rl, 'Trusted ED25519 server fingerprint (from your provider or server console)');
-    if (!/^SHA256:[A-Za-z0-9+/]{43}$/.test(settings.fingerprint)) throw new Error('Supply --fingerprint with the trusted ED25519 server fingerprint, or establish host trust in known_hosts first.');
+    // Match drone-scp 1.8.0 / drone-ssh 1.8.2 (x/crypto v0.37.0 / v0.45.0).
+    // Their default host-key order differs from OpenSSH. Recheck when upgrading Actions.
+    const actionAlgorithms = [
+      'rsa-sha2-256-cert-v01@openssh.com', 'rsa-sha2-512-cert-v01@openssh.com',
+      'ssh-rsa-cert-v01@openssh.com', 'ssh-dss-cert-v01@openssh.com',
+      'ecdsa-sha2-nistp256-cert-v01@openssh.com', 'ecdsa-sha2-nistp384-cert-v01@openssh.com',
+      'ecdsa-sha2-nistp521-cert-v01@openssh.com', 'ssh-ed25519-cert-v01@openssh.com',
+      'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521',
+      'rsa-sha2-256', 'rsa-sha2-512', 'ssh-rsa', 'ssh-dss', 'ssh-ed25519',
+    ];
+    const supportedAlgorithms = actionAlgorithms.filter((algorithm) => !algorithm.includes('-cert-') && !['ssh-rsa', 'ssh-dss'].includes(algorithm));
+    writeFileSync(knownHosts, [...hostKeys.values()].map((key) => `${lookup} ${key}\n`).join(''), { mode: 0o600 });
+    const sshOptions = ['-4', '-o', 'ConnectTimeout=15', '-o', 'StrictHostKeyChecking=yes', '-o', `UserKnownHostsFile=${knownHosts}`, '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'UpdateHostKeys=no'];
+    // Discover negotiation without credentials; an unknown host or denied login is expected.
+    // Neither discovery nor ssh-keyscan establishes trust in the returned key.
+    const probe = spawnSync('ssh', ['-F', '/dev/null', ...sshOptions, '-vv', '-o', `HostKeyAlgorithms=${supportedAlgorithms.join(',')}`, '-o', 'BatchMode=yes', '-o', 'PreferredAuthentications=none', '-o', 'PubkeyAuthentication=no', '-o', 'PasswordAuthentication=no', '-o', 'KbdInteractiveAuthentication=no', '-o', 'IdentityAgent=none', '-p', settings.port, `${settings.user}@${settings.host}`, 'true'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, timeout: 20000 });
+    const offered = probe.stderr?.split('debug2: peer server KEXINIT proposal')[1]?.match(/^debug2: host key algorithms: ([^\r\n]+)/m)?.[1].split(',') || [];
+    const algorithm = actionAlgorithms.find((entry) => offered.includes(entry));
+    if (algorithm && !supportedAlgorithms.includes(algorithm)) throw new Error(`The deployment Actions select ${algorithm}. Automatic setup requires a plain ECDSA, RSA-SHA2, or Ed25519 host key; review the server host-key configuration before retrying.`);
+    const negotiated = probe.stderr?.match(/^debug1: kex: host key algorithm: ([^\r\n]+)/m)?.[1];
+    const presented = probe.stderr?.match(/^debug1: Server host key: (ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)) (SHA256:[A-Za-z0-9+/]{43})(?:\r?$)/m);
+    if (probe.error || !algorithm || negotiated !== algorithm || !presented) throw new Error('Could not determine the deployment host key. Check IPv4 SSH access and the local OpenSSH client, then retry.');
+    const [, keyType, observedFingerprint] = presented;
+    if (!settings.fingerprint && hostKeys.has(observedFingerprint)) settings.fingerprint = observedFingerprint;
+    if (!settings.fingerprint && interactive && !values.yes) settings.fingerprint = await askRequired(rl, `Trusted ${keyType} server fingerprint (from your provider or server console)`);
+    if (!/^SHA256:[A-Za-z0-9+/]{43}$/.test(settings.fingerprint)) throw new Error(`Supply --fingerprint with the independently trusted ${keyType} server fingerprint selected by the deployment Actions, or establish trust for that key in known_hosts first.`);
+    if (settings.fingerprint !== observedFingerprint) throw new Error(`The ${keyType} host key selected by the deployment Actions does not match the trusted fingerprint. Verify this key with the provider and retry with --fingerprint. Existing keys and GitHub secrets were preserved.`);
     let hostKey = hostKeys.get(settings.fingerprint);
     if (!hostKey) {
-      const scan = spawnSync('ssh-keyscan', ['-4', '-T', '10', '-p', settings.port, '-t', 'ed25519', settings.host], { encoding: 'utf8' });
+      const scanType = keyType === 'ssh-rsa' ? 'rsa' : keyType === 'ssh-ed25519' ? 'ed25519' : 'ecdsa';
+      const scan = spawnSync('ssh-keyscan', ['-4', '-T', '10', '-p', settings.port, '-t', scanType, settings.host], { encoding: 'utf8', timeout: 15000 });
+      if (scan.status !== 0) throw new Error('Could not retrieve the deployment host key. Check IPv4 SSH access and retry; existing keys and GitHub secrets were preserved.');
       for (const line of (scan.stdout || '').split('\n')) {
-        const key = line.match(/^\S+ (ssh-ed25519 [A-Za-z0-9+/=]+)(?: |$)/)?.[1];
-        if (!key) continue;
+        const key = line.match(/^\S+ ((?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)) [A-Za-z0-9+/=]+)(?: |$)/)?.[1];
+        if (!key || !key.startsWith(`${keyType} `)) continue;
         const candidateKey = path.join(temporary, 'server-key.pub');
         writeFileSync(candidateKey, `${key}\n`, { mode: 0o600 });
         const fingerprint = spawnSync('ssh-keygen', ['-lf', candidateKey, '-E', 'sha256'], { encoding: 'utf8' });
         if (fingerprint.status === 0 && fingerprint.stdout.trim().split(/\s+/)[1] === settings.fingerprint) hostKey = key;
       }
     }
-    if (!hostKey) throw new Error('The server ED25519 host key does not match the trusted fingerprint. Verify the endpoint with the provider before retrying.');
+    if (!hostKey) throw new Error('The retrieved deployment host key does not match the trusted fingerprint. Verify the endpoint with the provider before retrying.');
     writeFileSync(knownHosts, `${lookup} ${hostKey}\n`, { mode: 0o600 });
-    const sshOptions = ['-4', '-o', 'ConnectTimeout=15', '-o', 'StrictHostKeyChecking=yes', '-o', `UserKnownHostsFile=${knownHosts}`, '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'UpdateHostKeys=no', '-o', 'HostKeyAlgorithms=ssh-ed25519'];
+    sshOptions.push('-o', `HostKeyAlgorithms=${algorithm}`);
+    log.success(`Deployment host key verified: ${keyType} ${settings.fingerprint}`);
     const keyFile = settings['key-file'];
     if (!existsSync(keyFile)) {
       if (existsSync(`${keyFile}.pub`)) throw new Error('A public key already occupies the chosen key path. Choose a dedicated unused --key-file.');

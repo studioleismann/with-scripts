@@ -133,7 +133,8 @@ Nested repositories and symbolic links are rejected.
 
 Real setup requires Git author identity, a clean default-branch checkout, existing
 SSH access, a dedicated passphrase-free Ed25519 key outside the repository (or an
-available path for creation), and a trusted ED25519 server host key. The server
+available path for creation), and a trusted ECDSA, RSA-SHA2, or Ed25519 server host
+key selected by the deployment Actions. The server
 needs a public IPv4 SSH endpoint, POSIX shell and standard file/tar tools. It needs
 write access below the configured WordPress root's `wp-content`, and regular
 WordPress/component root paths.

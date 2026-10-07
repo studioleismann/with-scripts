@@ -42,9 +42,14 @@ kept in a regular private file outside the repository, by default
 `~/.ssh/<owner>-<repository>-deployment`. Keep the containing directory available.
 Passwords, when needed for the setup connection, are entered in the terminal.
 
-The server's ED25519 key is pinned from an existing `known_hosts` entry, or matched
-against `--fingerprint` supplied from an independently trusted provider/server
-source. A key scan discovers candidates; it does not establish trust by itself.
+Setup checks which host key the deployment Actions select, then pins that key
+from an existing `known_hosts` entry or matches it against `--fingerprint` from
+an independently trusted provider/server source. ECDSA, RSA with SHA-2 signatures,
+and Ed25519 host keys are supported. The current Actions prefer ECDSA over RSA
+and Ed25519; your regular OpenSSH login can choose a different key. Discovery
+and key scans do not establish trust by themselves. A saved fingerprint for a
+different key stops setup before key authorization or GitHub changes. Verify
+the selected key with your provider and retry with its `--fingerprint`.
 
 ## Select owned code and preview
 

@@ -4,6 +4,10 @@
 
 ### Website repository automation
 
+- Verify the host key selected by the deployment Actions, supporting ECDSA,
+  RSA-SHA2, and Ed25519 instead of assuming an Ed25519 server key. Reject a
+  fingerprint for a different key before key authorization or GitHub changes.
+
 - Extend `setup-deployment` with a freely selected GitHub owner, versioned website
   templates, isolated Node.js 24 validation, dedicated key authorization, resumable
   GitHub configuration, and verified commit/push.

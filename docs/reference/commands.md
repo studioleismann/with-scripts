@@ -285,7 +285,7 @@ with-scripts setup-deployment --demo
 | `--user=<username>` | SSH account; otherwise resolved from the SSH alias |
 | `--port=<port>` | Integer 1–65535; resolved from alias, otherwise 22 |
 | `--key-file=<path>` | Dedicated private-key path outside Git; default `~/.ssh/<owner>-<repository>-deployment` |
-| `--fingerprint=<SHA256:...>` | Trusted ED25519 host fingerprint; otherwise use a known host key or prompt |
+| `--fingerprint=<SHA256:...>` | Trusted fingerprint for the host key selected by the Actions; otherwise use that known host key or prompt |
 | `--dry-run` | Local plan, exclusions and template conflict checks; no project/service changes |
 | `--yes` | Accept the setup plan with complete inputs; usable without a terminal |
 | `--replace-secrets` | Explicitly replace existing deployment secrets when saved progress does not match |

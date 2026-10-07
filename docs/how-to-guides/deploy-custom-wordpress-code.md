@@ -40,8 +40,8 @@ release-compatible arrangement. Run component lint/tests and inspect the local s
 
 The private website repository needs variables `WORDPRESS_ROOT` and `LIVE_URL`,
 and secrets `HOST`, `USERNAME`, `PORT`, `FINGERPRINT`, and `KEY`. Confirm the trusted
-ED25519 server fingerprint, the intended account, writable WordPress paths, and
-public IPv4 SSH reachability from GitHub Actions. Setup verifies the key with the
+server fingerprint selected by the deployment Actions, the intended account, writable
+WordPress paths, and public IPv4 SSH reachability from GitHub Actions. Setup verifies the key with the
 personal agent disabled and runs the remote read-only preflight.
 
 ## Publish the reviewed tag
