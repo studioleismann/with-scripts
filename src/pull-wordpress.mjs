@@ -236,6 +236,9 @@ export async function pullWordPress() {
     }
     localFilesCompleted = true;
 
+    run('Syncing production files into DDEV', 'ddev', ['--skip-hooks', 'mutagen', 'sync'], {
+      errorMessage: 'Production files could not be synchronized into DDEV. Check Mutagen and retry the pull.',
+    });
     const wpConfigPath = path.join(projectRoot, 'wp-config.php');
     try {
       copyFileSync(wpConfigPath, wpConfigBackup);
@@ -243,9 +246,12 @@ export async function pullWordPress() {
       throw new Error('wp-config.php could not be backed up. Check local disk space and permissions.');
     }
     const tablePrefix = runCapture('Reading imported table prefix without loading PHP', 'ddev', [
-      '--skip-hooks', 'exec', '--raw', '--', 'php', '-r', LOCAL_DATA_SCRIPT, 'config', '.', 'table_prefix',
+      '--skip-hooks', 'exec', '--quiet', '--raw', '--', 'php', '-r', LOCAL_DATA_SCRIPT, 'config', '.', 'table_prefix',
     ]).trim();
     patchWpConfig(wpConfigPath, tablePrefix);
+    run('Syncing local configuration into DDEV', 'ddev', ['--skip-hooks', 'mutagen', 'sync'], {
+      errorMessage: 'Local configuration could not be synchronized into DDEV. Check Mutagen and retry the pull.',
+    });
     try {
       run('Checking wp-config.php', 'ddev', ['--skip-hooks', 'exec', 'php', '-l', 'wp-config.php'], {
         errorMessage: 'wp-config.php failed validation.',
@@ -270,7 +276,8 @@ export async function pullWordPress() {
       errorMessage: 'Production database import failed.',
     });
     replaceUrls(liveUrl, localUrl);
-    run('Checking local WordPress database without loading PHP', 'ddev', ['--skip-hooks', 'exec', '--raw', '--', 'php', '-r', LOCAL_DATA_SCRIPT, 'preflight', '.', localUrl], {
+    run('Checking local WordPress database without loading PHP', 'ddev', ['--skip-hooks', 'exec', '--quiet', '--raw', '--', 'php', '-r', LOCAL_DATA_SCRIPT, 'pull-preflight', '.', localUrl], {
+      stdout: 'ignore',
       errorMessage: 'Local WordPress verification failed.',
     });
 
@@ -631,7 +638,7 @@ function replaceUrls(liveUrl, localUrl) {
     pattern: `~${pattern}~`, replacement: localUrl.replace(/[\\$]/g, '\\$&'),
   })).toString('base64');
   run('Replacing URLs without loading imported WordPress PHP', 'ddev', [
-    '--skip-hooks', 'exec', '--raw', '--', 'php', '-r', LOCAL_DATA_SCRIPT, 'replace', '.', settings,
+    '--skip-hooks', 'exec', '--quiet', '--raw', '--', 'php', '-r', LOCAL_DATA_SCRIPT, 'pull-replace', '.', settings,
   ], { errorMessage: 'Database-only URL replacement failed. Review the diagnostic above and restore the DDEV snapshot if needed.' });
 }
 

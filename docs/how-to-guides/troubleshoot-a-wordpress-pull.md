@@ -123,7 +123,16 @@ The safety explanation covers [what each backup protects](../explanation/product
 ## Database-only preparation stops
 
 Use unambiguous literal database constants and a table prefix in the imported
-configuration. Local URL replacement requires InnoDB tables and primary keys for
+configuration. Pull synchronizes extracted files into DDEV before reading that prefix,
+then synchronizes the generated local configuration before database import. If a
+synchronization step fails, check `ddev mutagen status` before retrying the pull.
+
+Local URL replacement and verification use only tables with the imported WordPress
+prefix. Other prefixes in the database are preserved. A missing-table error names
+the expected prefix; compare it with the production `wp-config.php` and imported
+table names. Full-site push continues to reject shared databases.
+
+Local URL replacement requires InnoDB tables and primary keys for
 changed rows. Review malformed/custom serialized data before retrying. A replacement
 failure rolls back its URL changes; the production database import has already
 happened, so use the printed DDEV snapshot command to recover the previous local DB.

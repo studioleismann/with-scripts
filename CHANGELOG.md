@@ -53,6 +53,10 @@
 
 ### Pull and push behavior
 
+- Synchronize extracted files and generated local configuration into DDEV before
+  reading the table prefix or importing the database. Scope local pull URL changes
+  and verification to that prefix while preserving other imported tables. Keep push
+  checks strict and report concise diagnostics without dumping the inline PHP code.
 - Detect a working remote PHP CLI for inspection, setup, and pull when `php` points
   to a CGI or incompatible binary, including IONOS hosting. Preserve a working
   default, otherwise choose the highest available CLI version from `PATH`.

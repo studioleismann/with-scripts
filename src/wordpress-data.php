@@ -137,6 +137,8 @@ if ( isset( $argv[1] ) && 'library' === $argv[1] ) return;
 try {
 	if ( PHP_VERSION_ID < 80100 ) throw new RuntimeException( 'Use PHP 8.1 or newer for database-only WordPress operations.' );
 	$mode = $argv[1] ?? '';
+	$local_pull = in_array( $mode, array( 'pull-replace', 'pull-preflight' ), true );
+	if ( $local_pull ) $mode = substr( $mode, 5 );
 	$root = $argv[2] ?? '';
 	if ( ! is_dir( $root ) || realpath( $root ) !== $root ) throw new RuntimeException( 'Use a canonical WordPress document root.' );
 	[ $config, $config_source, $prefix_token ] = with_scripts_read_config( $root );
@@ -161,11 +163,17 @@ try {
 	$prefix = $config['table_prefix'];
 	$tables = array();
 	foreach ( $db->query( 'SHOW FULL TABLES' )->fetch_all() as $table ) {
-		if ( ! str_starts_with( $table[0], $prefix ) || 'BASE TABLE' !== $table[1] || ! preg_match( '/^[a-zA-Z0-9_]+$/D', $table[0] ) ) throw new RuntimeException( 'Shared databases and views are unsupported.' );
+		// Pull only changes the selected site. Push still requires an exclusive database.
+		if ( ! str_starts_with( $table[0], $prefix ) ) {
+			if ( $local_pull ) continue;
+			throw new RuntimeException( 'Shared databases are unsupported for this operation. Review table: ' . $table[0] );
+		}
+		if ( 'BASE TABLE' !== $table[1] ) throw new RuntimeException( 'WordPress database views are unsupported. Review view: ' . $table[0] );
+		if ( ! preg_match( '/^[a-zA-Z0-9_]+$/D', $table[0] ) ) throw new RuntimeException( 'Unsupported WordPress table name: ' . $table[0] );
 		$tables[] = $table[0];
 	}
 	sort( $tables );
-	if ( ! in_array( $prefix . 'options', $tables, true ) || ! in_array( $prefix . 'posts', $tables, true ) ) throw new RuntimeException( 'WordPress database tables are missing.' );
+	if ( ! in_array( $prefix . 'options', $tables, true ) || ! in_array( $prefix . 'posts', $tables, true ) ) throw new RuntimeException( 'WordPress database tables are missing for prefix "' . $prefix . '". Check the imported table prefix.' );
 	$options = array_column( $db->query( "SELECT option_name, option_value FROM `{$prefix}options` WHERE option_name IN ('home','siteurl','stylesheet','template','active_plugins')" )->fetch_all( MYSQLI_ASSOC ), 'option_value', 'option_name' );
 	if ( 'preflight' === $mode ) {
 		if ( ( $options['home'] ?? '' ) !== ( $argv[3] ?? '' ) || ( $options['siteurl'] ?? '' ) !== ( $argv[3] ?? '' ) || ( isset( $config['WP_HOME'] ) && $config['WP_HOME'] !== $argv[3] ) || ( isset( $config['WP_SITEURL'] ) && $config['WP_SITEURL'] !== $argv[3] ) ) throw new RuntimeException( 'Target URL does not match the installed WordPress database.' );
@@ -237,7 +245,7 @@ try {
 			$updates[] = array( $table, $keys, $row, $changed );
 		}
 	}
-	foreach ( $db->query( 'SHOW TABLE STATUS' )->fetch_all( MYSQLI_ASSOC ) as $table ) if ( 'InnoDB' !== $table['Engine'] ) throw new RuntimeException( 'Use InnoDB tables for transactional URL replacement. Restore the DDEV snapshot if needed.' );
+	foreach ( $db->query( 'SHOW TABLE STATUS' )->fetch_all( MYSQLI_ASSOC ) as $table ) if ( in_array( $table['Name'], $tables, true ) && 'InnoDB' !== $table['Engine'] ) throw new RuntimeException( 'Use InnoDB tables for transactional URL replacement. Review table: ' . $table['Name'] );
 	$expected_posts = $posts;
 	$db->begin_transaction();
 	try {

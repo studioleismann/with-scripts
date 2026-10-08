@@ -70,7 +70,7 @@ if(isset($s['sql'])) { $db->multi_query($s['sql']); do {if($result=$db->store_re
 if(isset($s['query']))echo json_encode($db->query($s['query'])->fetch_all(MYSQLI_ASSOC),JSON_THROW_ON_ERROR);
 `;
 
-for (const scenario of ['replacement', 'successful push', 'failed push']) {
+for (const scenario of ['replacement', 'pull replacement', 'successful push', 'failed push']) {
   test(`database integration: ${scenario} leaves application PHP unexecuted`, { skip: !process.env.WITH_SCRIPTS_TEST_DB }, () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'with-scripts-data-')));
     const site = path.join(root, 'httpdocs');
@@ -79,7 +79,7 @@ for (const scenario of ['replacement', 'successful push', 'failed push']) {
     const bin = path.join(root, 'bin');
     const database = 'with_scripts_' + randomBytes(8).toString('hex');
     const marker = path.join(root, 'application-executed');
-    const prefix = scenario === 'replacement' ? 'wp_' : 'old_';
+    const prefix = scenario.endsWith('replacement') ? 'wp_' : 'old_';
     const original = '<!-- wp:group {"className":"hero","style":{"css":"& { background: url(https://example.org/css); }"}} --><p>https://example.org/page</p><!-- /wp:group -->';
     const columnSql = '(ID bigint PRIMARY KEY, post_parent bigint NOT NULL, post_type varchar(30) NOT NULL, post_status varchar(30) NOT NULL, post_modified_gmt datetime NOT NULL, post_content longtext NOT NULL, guid varchar(255) NOT NULL) ENGINE=InnoDB';
     const schema = `CREATE TABLE ${prefix}posts ${columnSql}; CREATE TABLE ${prefix}options (option_id bigint PRIMARY KEY, option_name varchar(100), option_value longtext) ENGINE=InnoDB; CREATE TABLE ${prefix}plugin_data (id bigint PRIMARY KEY, value longtext) ENGINE=InnoDB;`;
@@ -111,10 +111,43 @@ for (const scenario of ['replacement', 'successful push', 'failed push']) {
       assert.equal(before.posts.length, 3);
       assert.equal(before.posts[0].css[0].path, '/0');
       assert.equal(before.posts[0].css[0].className, 'hero');
-      if (scenario === 'replacement') {
+      if (scenario.endsWith('replacement')) {
         const settings = Buffer.from(JSON.stringify({ pattern: `~${exportUrlPattern(['https://example.org'])}~`, replacement: 'https://example.local' })).toString('base64');
-        const result = spawnSync('php', [script, 'replace', site, settings], { encoding: 'utf8' });
+        const mode = scenario === 'pull replacement' ? 'pull-replace' : 'replace';
+        if (scenario === 'pull replacement') {
+          // A second site's malformed values, nontransactional tables and views are outside the pull scope.
+          execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: `CREATE TABLE other_options (id int PRIMARY KEY, value longtext) ENGINE=MyISAM; INSERT INTO other_options VALUES (1,'s:1:"https://example.org/other";'); CREATE VIEW other_view AS SELECT * FROM other_options;` }) });
+          for (const strictMode of ['preflight', 'replace']) {
+            const strict = spawnSync('php', [script, strictMode, site, strictMode === 'replace' ? settings : 'https://example.org'], { encoding: 'utf8' });
+            assert.equal(strict.status, 1, strict.stdout + strict.stderr);
+            assert.match(strict.stderr, /Shared databases are unsupported/);
+          }
+          writeFileSync(path.join(site, 'wp-config.php'), config.replace("$table_prefix='wp_'", "$table_prefix='missing_'"));
+          const missing = spawnSync('php', [script, mode, site, settings], { encoding: 'utf8' });
+          writeFileSync(path.join(site, 'wp-config.php'), config);
+          assert.equal(missing.status, 1, missing.stdout + missing.stderr);
+          assert.match(missing.stderr, /tables are missing for prefix "missing_"/);
+          execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: 'CREATE VIEW wp_view AS SELECT * FROM wp_options;' }) });
+          const view = spawnSync('php', [script, mode, site, settings], { encoding: 'utf8' });
+          assert.equal(view.status, 1, view.stdout + view.stderr);
+          assert.match(view.stderr, /Review view: wp_view/);
+          execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: 'DROP VIEW wp_view; CREATE TABLE wp_legacy (id int PRIMARY KEY, value longtext) ENGINE=MyISAM;' }) });
+          const engine = spawnSync('php', [script, mode, site, settings], { encoding: 'utf8' });
+          assert.equal(engine.status, 1, engine.stdout + engine.stderr);
+          assert.match(engine.stderr, /Use InnoDB.*wp_legacy/);
+          execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: 'DROP TABLE wp_legacy;' }) });
+          const unchanged = JSON.parse(execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, query: 'SELECT post_content FROM wp_posts ORDER BY ID' }), encoding: 'utf8' }));
+          assert.deepEqual(unchanged.map(row => row.post_content), [original, original + 'latest revision', original + 'autosave']);
+        }
+        const result = spawnSync('php', [script, mode, site, settings], { encoding: 'utf8' });
         assert.equal(result.status, 0, result.stdout + result.stderr);
+        if (scenario === 'pull replacement') {
+          const checked = JSON.parse(execFileSync('php', [script, 'pull-preflight', site, 'https://example.local'], { encoding: 'utf8' }));
+          assert.deepEqual(checked.tables, before.tables);
+          const foreign = JSON.parse(execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, query: 'SELECT * FROM other_view' }), encoding: 'utf8' }));
+          assert.equal(foreign[0].value, 's:1:"https://example.org/other";');
+          execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: 'DROP VIEW other_view; DROP TABLE other_options;' }) });
+        }
         const after = JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' }));
         for (let index = 0; index < before.posts.length; index++) {
           assert.deepEqual(after.posts[index].css, before.posts[index].css);
@@ -127,7 +160,7 @@ for (const scenario of ['replacement', 'successful push', 'failed push']) {
         assert.equal(posts[0].guid, 'https://example.org/?p=1');
         // A malformed serialized value must fail during planning, before any row changes.
         execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: `UPDATE wp_plugin_data SET value='s:1:"https://example.local/bad";';` }) });
-        const failed = spawnSync('php', [script, 'replace', site, Buffer.from(JSON.stringify({ pattern: `~${exportUrlPattern(['https://example.local'])}~`, replacement: 'https://example-next.local' })).toString('base64')], { encoding: 'utf8' });
+        const failed = spawnSync('php', [script, mode, site, Buffer.from(JSON.stringify({ pattern: `~${exportUrlPattern(['https://example.local'])}~`, replacement: 'https://example-next.local' })).toString('base64')], { encoding: 'utf8' });
         assert.equal(failed.status, 1, failed.stdout + failed.stderr);
         assert.deepEqual(JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' })), after);
       } else {
