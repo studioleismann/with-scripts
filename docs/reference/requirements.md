@@ -66,6 +66,14 @@ detected PHP and MySQL/MariaDB versions. Setup configures a WordPress project wi
 its document root at `.`; custom web-server rules and custom local hostnames need
 their own DDEV configuration.
 
+## Database-only pull preparation
+
+Local URL replacement requires PHP 8.1+ with `mysqli` and `tokenizer` in DDEV, a
+literal imported table prefix, a dedicated WordPress database and InnoDB tables.
+Changed text/JSON/serialized values require primary keys. Unsupported custom
+serialization stops with a diagnostic before writes. Pull generates the standard
+local DDEV configuration and skips import/exec hooks that could bootstrap imports.
+
 ## Full-site push target
 
 The target must already contain WordPress and have:
@@ -73,7 +81,7 @@ The target must already contain WordPress and have:
 - a public HTTPS URL at the domain root, matching both database `home` and `siteurl`;
 - a dedicated database containing only base tables with its WordPress prefix;
 - the standard `wp-content` location and an absolute document root below a site directory;
-- PHP 8 or newer, matching the local major/minor version, with the extensions needed by the site;
+- PHP 8.1 or newer, matching the local major/minor version, with `mysqli` and `tokenizer`;
 - `mysql`, `mysqldump`, `gzip`, `tar`, `curl`, and `sha256sum` available over SSH;
 - permissions and disk space for a private sibling workspace, a full backup, and the candidate site;
 - HTTPS serving that exact document root and working WordPress permalink rules.
@@ -83,8 +91,11 @@ paths, a target already in maintenance mode, and symbolic links in copied runtim
 files or managed target paths. The target URL accepts no explicit port or local
 hostname suffix such as `.ddev.site`, `.local`, or `.test`.
 
-Choose hosting-specific PHP with `--php=/absolute/path/to/php`. Push bundles the
-DDEV WP-CLI executable for the remote transaction. Local root-level content drop-ins
+Choose hosting-specific PHP with `--php=/absolute/path/to/php`. The remote transaction
+uses bundled database inspection and a commit-pinned WordPress block parser. Database
+constants and `table_prefix` must be unambiguous literal values in a regular
+`wp-config.php`; dynamic expressions/includes require deliberate configuration changes.
+`DB_HOST` supports a hostname or hostname:port. Local root-level content drop-ins
 such as `object-cache.php` and `db.php` are outside its upload set. Review
 [the transfer boundaries](commands.md#push-wordpress) before using a site with these files.
 

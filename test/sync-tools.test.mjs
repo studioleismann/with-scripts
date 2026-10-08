@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -37,9 +37,10 @@ test('sync-tools supports an optional theme slug and read-only preview', () => {
 });
 
 test('sync-tools detects a theme root without querying WordPress', () => {
-  const project = mkdtempSync(path.join(tmpdir(), 'with-scripts-tools-'));
+  const project = realpathSync(mkdtempSync(path.join(tmpdir(), 'with-scripts-tools-')));
   const theme = path.join(project, 'wp-content', 'themes', 'exampletheme');
   try {
+    mkdirSync(theme, { recursive: true });
     const targets = resolveToolTargets(theme);
     assert.deepEqual(targets, {
       projectRoot: project,

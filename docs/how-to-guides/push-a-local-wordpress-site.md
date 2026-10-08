@@ -23,7 +23,7 @@ installed local `node_modules`. Other packages use their existing runtime files.
 
 The target's database credentials, salts, and server configuration are retained.
 Its `wp-config.php` is reused with the source table prefix. Existing `.htaccess`
-is kept; absent rules are generated through WordPress. Review custom absolute paths
+is kept; absent rules use the standard single-site, domain-root WordPress rules. Review custom absolute paths
 or other host-specific constants in that configuration.
 
 The complete target `wp-content` directory is replaced. The upload includes plugins,
@@ -46,7 +46,8 @@ with-scripts push-wordpress \
 
 Add the selected `--php` option when the host's default `php` differs from DDEV.
 The preflight inventories local content and reads the target. It verifies matching
-PHP versions and target database URLs, among other checks. It performs no build,
+PHP versions and target database URLs using bundled configuration parsing and direct
+database queries. Target PHP is read as data. It performs no build,
 package upload, backup, or replacement.
 
 Saved defaults, if desired, belong in `wordpressPush` in `.with-scripts.json`.
@@ -104,12 +105,14 @@ On the target, the command:
 4. Validates archives and rechecks original content before importing the replacement.
 5. Checks imported table names/counts, exact content hashes, protected CSS, and key
    settings before switching runtime files.
-6. Loads WordPress with its theme/plugins before and after the switch, then checks
-   HTTPS and content again under the rollback handler.
+6. Checks the candidate's version, active component files and database settings with
+   bundled code, then checks HTTPS and content again under the rollback handler.
+   Application PHP runs through the website's HTTP runtime; the SSH transaction
+   never bootstraps the target or candidate's configuration, Core, plugins or themes.
 
 The homepage and login checks require HTTP `200`, a nonempty response, and absence
 of the specific fatal/database-error strings checked by the script. If a published
-page is available, its permalink must return `200`. Redirects are not followed by
+page is available, its `?page_id=` URL must return `200`. Redirects are not followed by
 these push checks. They establish the scripted conditions; complete functionality
 and visual review remain separate.
 
@@ -149,7 +152,7 @@ Recovery files include `rollback/database.sql.gz`, `rollback/files.tar.gz`,
 `rollback/wp-config.php`, and `rollback/content.json`. A failed automatic recovery
 needs those matching database/files/configuration backups restored together. Verify
 maintenance state, retain the workspace, and verify restored content through the
-retained audit script/WP-CLI before reopening the site. Manual recovery is an
+retained `wordpress-data.php` audit script before reopening the site. Manual recovery is an
 operator procedure; the CLI has no general rollback subcommand.
 
 Keep successful backups until acceptance and your retention requirements are met.

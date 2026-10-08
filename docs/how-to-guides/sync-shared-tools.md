@@ -30,7 +30,10 @@ with-scripts sync-tools --slug=example-theme --dry-run
 
 Omitting `--slug` at the project root reads WordPress's active `stylesheet` option.
 From `wp-content/themes/example-theme`, the current directory always selects the
-theme, including when a slug option is present.
+theme, including when a slug option is present. Every selector uses lowercase
+letters, numbers and single hyphens, starting with a letter. The theme must be a
+regular direct child of `wp-content/themes`, with regular `wp-content`/`themes`
+ancestors and a regular `package.json`. Symlinks stop before npm runs.
 
 The dry run checks local WordPress, the theme Patterns runtime, the Theme Tools source
 version and installed plugin status, and the Site Tools runtime. It skips builds and

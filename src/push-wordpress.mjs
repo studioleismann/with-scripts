@@ -27,6 +27,8 @@ import { normalizeUrl, validateRemoteInput } from './remote-wordpress.mjs';
 import { ddevUrl } from './pull-wordpress.mjs';
 
 const CONTENT_SCRIPT = readFileSync(new URL('./push-content.php', import.meta.url), 'utf8');
+const DATA_SCRIPT = readFileSync(new URL('./wordpress-data.php', import.meta.url), 'utf8');
+const BLOCK_PARSER = readFileSync(new URL('./wordpress-block-parser.php', import.meta.url), 'utf8');
 const REMOTE_SCRIPT = readFileSync(new URL('./push-remote.sh', import.meta.url), 'utf8');
 export const CORE_PATHS = [
   'index.php',
@@ -134,26 +136,10 @@ PHP_BIN="${'$'}{3:-php}"
 test -d "$ROOT" && test ! -L "$ROOT"
 cd "$ROOT"
 test "$PWD" = "$(pwd -P)"
-test ! -e .maintenance || { echo "Target is in maintenance mode. Finish its current operation before pushing." >&2; exit 1; }
-test -r wp-config.php && test -f wp-load.php || { echo 'Install WordPress at this document root first.' >&2; exit 1; }
+test ! -e .maintenance && test ! -L .maintenance || { echo "Target is in maintenance mode. Finish its current operation before pushing." >&2; exit 1; }
+test -r wp-config.php && test ! -L wp-config.php && test -f wp-load.php || { echo 'Install WordPress at this document root first.' >&2; exit 1; }
 for cmd in "$PHP_BIN" mysql mysqldump gzip tar curl sha256sum; do command -v "$cmd" >/dev/null; done
-"$PHP_BIN" -r '
-  define("SHORTINIT", true);
-  require "wp-load.php";
-  ini_set("display_errors", "stderr");
-  if (defined("MULTISITE") && MULTISITE) { throw new RuntimeException("Multisite is not supported."); }
-  if (defined("WP_CONTENT_DIR") && WP_CONTENT_DIR !== __DIR__ . "/wp-content") { throw new RuntimeException("Custom content directories are not supported."); }
-  $home = $wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name = \\"home\\"");
-  $site = $wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name = \\"siteurl\\"");
-  if ($home !== $argv[1] || $site !== $argv[1]) { throw new RuntimeException("Target URL does not match the installed WordPress database."); }
-  $tables = [];
-  foreach ($wpdb->get_results("SHOW FULL TABLES", ARRAY_N) as $table) {
-    if (!str_starts_with($table[0], $wpdb->prefix) || $table[1] !== "BASE TABLE" || !preg_match("/^[a-zA-Z0-9_]+$/", $table[0])) { throw new RuntimeException("Shared databases and views are not supported."); }
-    $tables[] = $table[0];
-  }
-  if ($wpdb->last_error || !$tables) { throw new RuntimeException("Target database inspection failed."); }
-  echo json_encode(["root" => getcwd(), "home" => $home, "prefix" => $wpdb->prefix, "tables" => $tables, "php" => PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION]);
-' "$2"
+"$PHP_BIN" -r '${DATA_SCRIPT.slice(5).replaceAll("'", "'\\''")}' preflight "$ROOT" "$2"
 `;
 }
 
@@ -404,17 +390,9 @@ export async function pushWordPress(argv = []) {
     run('Checking runtime archive', 'tar', ['-tzf', path.join(temporaryRoot, 'files.tar.gz')], {
       stdout: 'ignore',
     });
-    await runToFile(
-      'Bundling the installed WP-CLI for hosts without it',
-      'ddev',
-      ['exec', '--raw', '--', 'cat', '/usr/local/bin/wp-cli'],
-      undefined,
-      path.join(temporaryRoot, 'wp-cli.phar'),
-    );
-    writeFileSync(path.join(temporaryRoot, 'content.json'), JSON.stringify(source), {
-      mode: 0o600,
-    });
-    writeFileSync(path.join(temporaryRoot, 'content.php'), CONTENT_SCRIPT, { mode: 0o600 });
+    writeFileSync(path.join(temporaryRoot, 'content.json'), JSON.stringify(source), { mode: 0o600 });
+    writeFileSync(path.join(temporaryRoot, 'wordpress-data.php'), DATA_SCRIPT, { mode: 0o600 });
+    writeFileSync(path.join(temporaryRoot, 'wordpress-block-parser.php'), BLOCK_PARSER, { mode: 0o600 });
     const managed = [...CORE_PATHS, 'wp-content', 'wp-config.php', 'index.html'];
     writeFileSync(path.join(temporaryRoot, 'managed-paths'), managed.join('\n') + '\n', {
       mode: 0o600,
@@ -468,8 +446,8 @@ export async function pushWordPress(argv = []) {
     const uploads = [
       'files.tar.gz',
       'database.sql.gz',
-      'wp-cli.phar',
-      'content.php',
+      'wordpress-data.php',
+      'wordpress-block-parser.php',
       'content.json',
       'managed-paths',
       'source-tables',

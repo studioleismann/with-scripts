@@ -203,8 +203,8 @@ test('workflow is release-driven and contains no configured component slug', () 
 test('workflow uses pinned appleboy transport for deployment', () => {
 	const workflow = readFileSync(workflowFile, 'utf8');
 
-	assert.match(workflow, /uses: appleboy\/scp-action@v1\.0\.0/);
-	assert.match(workflow, /uses: appleboy\/ssh-action@v1\.2\.5/);
+	assert.match(workflow, /uses: appleboy\/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345/);
+	assert.match(workflow, /uses: appleboy\/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2/);
 	assert.match(workflow, /fingerprint: \$\{\{ secrets\.FINGERPRINT \}\}/);
 	assert.match(
 		workflow,

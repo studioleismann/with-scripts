@@ -176,7 +176,7 @@ for (const existing of [false, true]) {
     const before = readdirSync(fixture.project);
     const result = spawnSync(process.execPath, [cli, ...fixture.args, '--dry-run'], { cwd: fixture.project, env: fixture.env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /wordpress-site 1.0.1/);
+    assert.match(result.stdout, /wordpress-site 1.0.2/);
     assert.match(result.stdout, /example-owner\/example.org/);
     assert.deepEqual(readdirSync(fixture.project), before);
     assert.equal(existsSync(path.join(fixture.root, 'keys/deployment')), false);
@@ -449,7 +449,7 @@ test('versioned template refresh updates untouched generated files and preserves
   assert.equal(retry.status, 0, retry.stdout + retry.stderr);
   assert.equal(readFileSync(path.join(fixture.project, script), 'utf8'), readFileSync(path.join(packageRoot, 'templates/wordpress-site', script), 'utf8'));
   assert.match(readFileSync(ignore, 'utf8'), /^# Custom rule added after setup/);
-  assert.equal(JSON.parse(readFileSync(metadataFile)).version, '1.0.1');
+  assert.equal(JSON.parse(readFileSync(metadataFile)).version, '1.0.2');
 });
 
 
@@ -460,4 +460,33 @@ test('local Node.js 24 validates the real artifact when DDEV is unavailable', { 
   assert.match(result.stdout, /Prepared deployment artifact/);
   assert.match(result.stdout, /tests 20/);
   assert.equal(existsSync(path.join(fixture.project, 'wp-content/themes/example-theme/node_modules')), false);
+});
+
+for (const expression of ["secrets.KEY", "secrets[format('K{0}', 'EY')]", "secrets[env.NAME]", "toJSON(secrets)", 'github.token']) {
+  test(`unmanaged workflow stops setup before secrets or publication: ${expression}`, (t) => {
+    const fixture = website(t);
+    const workflow = path.join(fixture.project, '.github/workflows/extra.yml');
+    mkdirSync(path.dirname(workflow), { recursive: true });
+    const contents = `name: Extra\non: push\njobs:\n  extra:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n        env:\n          VALUE: \${{ ${expression} }}\n`;
+    writeFileSync(workflow, contents);
+    const result = spawnSync(process.execPath, [cli, ...fixture.args, '--yes'], { cwd: fixture.project, env: fixture.env, encoding: 'utf8', timeout: 10000 });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /Review and remove unmanaged workflows/);
+    assert.equal(readFileSync(workflow, 'utf8'), contents);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.root, 'state.json'), 'utf8')).secrets, {});
+    const calls = readFileSync(path.join(fixture.root, 'calls'), 'utf8');
+    assert.doesNotMatch(calls, /"secret","set"|"push"|"repo","create"/);
+    assert.equal(existsSync(path.join(fixture.root, 'keys/deployment')), false);
+  });
+}
+
+test('setup publishes and verifies the approved tree before provisioning secrets', (t) => {
+  const fixture = website(t);
+  const result = spawnSync(process.execPath, [cli, ...fixture.args, '--yes'], { cwd: fixture.project, env: fixture.env, encoding: 'utf8', timeout: 30000 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const calls = readFileSync(path.join(fixture.root, 'calls'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const push = calls.findIndex(call => call[0] === 'git' && call.includes('push'));
+  const verified = calls.findIndex((call, index) => index > push && call[0] === 'git' && call[1] === 'ls-remote');
+  const secret = calls.findIndex(call => call[0] === 'gh' && call[1] === 'secret' && call[2] === 'set');
+  assert.ok(push >= 0 && verified > push && secret > verified, JSON.stringify(calls));
 });

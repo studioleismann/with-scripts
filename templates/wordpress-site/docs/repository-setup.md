@@ -24,5 +24,9 @@ Before adding another owned component, rerun setup with a repeatable
 path. Already tracked components retain ownership. Removing a tracked component
 from Git schedules its removal on the next published release.
 
-Setup commits and pushes the reviewed website source. Publishing the first release
+Setup rejects every unmanaged workflow before automatic provisioning, including
+computed secret expressions. Keep only the generated deployment workflow during
+setup; review additional automation separately afterward. Setup commits and pushes
+the reviewed website source and verifies the remote commit before provisioning
+new deployment secrets. Publishing the first release
 and checking its Actions run is a separate step.

@@ -17,19 +17,22 @@ env:
   DEPLOY_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
-  deploy:
-    name: Build and deploy WordPress code
+  build:
+    name: Build WordPress artifact
     runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      archive-sha256: ${{ steps.digest.outputs.sha256 }}
 
     steps:
       - name: Check out release
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
 
@@ -41,15 +44,76 @@ jobs:
       - name: Build deployment artifact
         run: node .github/scripts/prepare-deployment.mjs "$RUNNER_TEMP/with-deployment.tar.gz"
 
-      - name: Validate deployment configuration
+      - name: Hash deployment artifact
+        id: digest
         run: |
           set -euo pipefail
+          test -f "$RUNNER_TEMP/with-deployment.tar.gz"
+          test ! -L "$RUNNER_TEMP/with-deployment.tar.gz"
+          printf 'sha256=%s\n' "$(sha256sum "$RUNNER_TEMP/with-deployment.tar.gz" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
-          test -n '${{ secrets.FINGERPRINT }}'
-          test -n '${{ secrets.HOST }}'
-          test -n '${{ secrets.KEY }}'
-          test -n '${{ secrets.PORT }}'
-          test -n '${{ secrets.USERNAME }}'
+      - name: Store deployment artifact
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wordpress-deployment
+          path: ${{ runner.temp }}/with-deployment.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    name: Deploy verified artifact
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      # The fresh runner receives application data only from the build job.
+      - name: Check out deployment control script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/remote-deployment.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Download deployment artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: ${{ runner.temp }}/download
+          merge-multiple: true
+
+      - name: Verify deployment inputs
+        env:
+          ARCHIVE_SHA256: ${{ needs.build.outputs.archive-sha256 }}
+          CONTROL_REVISION: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$ARCHIVE_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$CONTROL_REVISION" =~ ^[a-f0-9]{40}$ ]]
+          test -f "$RUNNER_TEMP/download/with-deployment.tar.gz"
+          test ! -L "$RUNNER_TEMP/download/with-deployment.tar.gz"
+          printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/download/with-deployment.tar.gz" | sha256sum -c -
+          mv "$RUNNER_TEMP/download/with-deployment.tar.gz" "$RUNNER_TEMP/with-deployment.tar.gz"
+          test -f .github/scripts/remote-deployment.sh
+          test ! -L .github/scripts/remote-deployment.sh
+          git show "$CONTROL_REVISION:.github/scripts/remote-deployment.sh" > "$RUNNER_TEMP/remote-deployment.sh"
+          cmp "$RUNNER_TEMP/remote-deployment.sh" .github/scripts/remote-deployment.sh
+
+      - name: Validate deployment configuration
+        env:
+          DEPLOY_FINGERPRINT: ${{ secrets.FINGERPRINT }}
+          DEPLOY_HOST: ${{ secrets.HOST }}
+          DEPLOY_KEY: ${{ secrets.KEY }}
+          DEPLOY_PORT: ${{ secrets.PORT }}
+          DEPLOY_USERNAME: ${{ secrets.USERNAME }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_FINGERPRINT"
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_USERNAME"
           test -n "$LIVE_URL"
           test -n "$WORDPRESS_ROOT"
 
@@ -92,7 +156,7 @@ jobs:
           PY
 
       - name: Upload remote deployment script
-        uses: appleboy/scp-action@v1.0.0
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -106,7 +170,7 @@ jobs:
 
       - name: Prepare production transaction
         id: create
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -128,7 +192,7 @@ jobs:
           cp "$RUNNER_TEMP/with-deployment.tar.gz" .deploy-artifact/artifact.tar.gz
 
       - name: Upload deployment artifact
-        uses: appleboy/scp-action@v1.0.0
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -141,7 +205,7 @@ jobs:
           target: ${{ env.WORDPRESS_ROOT }}/wp-content/.with-deploy-${{ env.DEPLOY_RUN_KEY }}/
 
       - name: Prepare deployment candidate
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -156,7 +220,7 @@ jobs:
 
       - name: Clean failed preparation
         if: ${{ failure() && steps.create.outcome == 'success' && steps.switch.outcome != 'success' }}
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -170,7 +234,7 @@ jobs:
 
       - name: Switch production components
         id: switch
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -229,7 +293,7 @@ jobs:
 
       - name: Roll back failed verification
         if: ${{ always() && steps.switch.outcome == 'success' && steps.smoke.outcome != 'success' }}
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -243,7 +307,7 @@ jobs:
 
       - name: Commit verified deployment
         if: ${{ steps.switch.outcome == 'success' && steps.smoke.outcome == 'success' }}
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}

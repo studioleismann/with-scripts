@@ -84,8 +84,8 @@ Git-tracked archive. If that restoration also fails, restore the tracked state
 through Git before continuing. Untracked files need your separate backup.
 
 The configuration backup is made **after production extraction and tracked-file
-restoration**, immediately before patching `wp-config.php`. A failed PHP syntax
-check restores that pre-patch copy when possible. It is not a backup of every
+restoration**, immediately before generating the local `wp-config.php`. A failed PHP syntax
+check restores that pre-generation copy when possible. It is not a backup of every
 pre-pull local file. The error states whether this restoration succeeded.
 
 The later preparation steps may add `.gitignore` lines and move `.maintenance` to
@@ -119,3 +119,12 @@ can contain a database dump and production configuration; retain only what you n
 for recovery and remove leftovers deliberately.
 
 The safety explanation covers [what each backup protects](../explanation/production-and-local-safety.md).
+
+## Database-only preparation stops
+
+Use unambiguous literal database constants and a table prefix in the imported
+configuration. Local URL replacement requires InnoDB tables and primary keys for
+changed rows. Review malformed/custom serialized data before retrying. A replacement
+failure rolls back its URL changes; the production database import has already
+happened, so use the printed DDEV snapshot command to recover the previous local DB.
+Imported PHP is never used to bypass these checks.

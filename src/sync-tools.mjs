@@ -1,9 +1,11 @@
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import process from 'node:process';
 import { note, outro } from '@clack/prompts';
 import { run, runCapture } from './cli.mjs';
+
+const THEME_SLUG = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export function parseSyncToolsArgs(args) {
   const options = {
@@ -36,7 +38,7 @@ export function parseSyncToolsArgs(args) {
 
   if (
     options.slug &&
-    !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(options.slug)
+    !THEME_SLUG.test(options.slug)
   ) {
     throw new Error('Theme slug must use lowercase letters, numbers, and single hyphens.');
   }
@@ -46,23 +48,21 @@ export function parseSyncToolsArgs(args) {
 
 export function resolveToolTargets(startDirectory, slug = '') {
   const current = path.resolve(startDirectory);
+  let projectRoot;
+  let activeSlug;
 
   if (
     path.basename(path.dirname(current)) === 'themes' &&
     path.basename(path.dirname(path.dirname(current))) === 'wp-content'
   ) {
-    return {
-      projectRoot: path.dirname(path.dirname(path.dirname(current))),
-      themeRoot: current,
-      slug: path.basename(current),
-    };
-  }
-
-  if (
+    projectRoot = path.dirname(path.dirname(path.dirname(current)));
+    activeSlug = path.basename(current);
+  } else if (
     existsSync(path.join(current, '.ddev', 'config.yaml')) &&
     existsSync(path.join(current, 'wp-content', 'themes'))
   ) {
-    const activeSlug = slug || runCapture(
+    projectRoot = current;
+    activeSlug = slug || runCapture(
       'Detecting active WordPress theme',
       'ddev',
       ['wp', 'option', 'get', 'stylesheet'],
@@ -75,30 +75,38 @@ export function resolveToolTargets(startDirectory, slug = '') {
           + 'Then rerun with-scripts sync-tools. No theme or plugin files were changed.',
       },
     ).trim();
-    if (!activeSlug) {
-      throw new Error('Could not detect the active WordPress theme.');
-    }
-    return {
-      projectRoot: current,
-      themeRoot: path.join(current, 'wp-content', 'themes', activeSlug),
-      slug: activeSlug,
-    };
+  } else {
+    throw new Error(
+      'Run sync-tools from a DDEV WordPress project root or one of its theme roots.',
+    );
   }
 
-  throw new Error(
-    'Run sync-tools from a DDEV WordPress project root or one of its theme roots.',
-  );
+  // Every selector, including WordPress database values, crosses this boundary.
+  if (!THEME_SLUG.test(activeSlug)) {
+    throw new Error('Theme slug must use lowercase letters, numbers, and single hyphens.');
+  }
+  projectRoot = realpathSync(projectRoot);
+  const themesRoot = path.join(projectRoot, 'wp-content', 'themes');
+  const themeRoot = path.join(themesRoot, activeSlug);
+  for (const directory of [path.join(projectRoot, 'wp-content'), themesRoot, themeRoot]) {
+    if (!lstatSync(directory, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new Error(`Use a regular theme directory without symlinks: ${directory}`);
+    }
+  }
+  if (path.dirname(realpathSync(themeRoot)) !== realpathSync(themesRoot)) {
+    throw new Error('Select a theme directly inside wp-content/themes.');
+  }
+  return { projectRoot, themeRoot, slug: activeSlug };
 }
 
 export function syncTools(args = [], context = {}) {
   const options = parseSyncToolsArgs(args);
   const targets = context.projectRoot && context.themeRoot
-    ? {
-        projectRoot: context.projectRoot,
-        themeRoot: context.themeRoot,
-        slug: path.basename(context.themeRoot),
-      }
+    ? resolveToolTargets(context.themeRoot)
     : resolveToolTargets(process.cwd(), options.slug);
+  if (context.projectRoot && targets.projectRoot !== realpathSync(context.projectRoot)) {
+    throw new Error('Select a theme inside the specified WordPress project.');
+  }
   const toolSources = context.toolSources || defaultToolSources(options.toolSources);
   const pluginsDirectory = path.join(targets.projectRoot, 'wp-content', 'plugins');
   const themeToolsTarget = path.join(pluginsDirectory, 'with-theme-tools');
@@ -120,8 +128,8 @@ export function syncTools(args = [], context = {}) {
     });
   }
 
-  if (!existsSync(path.join(targets.themeRoot, 'package.json'))) {
-    throw new Error(`Theme package.json is missing: ${targets.themeRoot}`);
+  if (!lstatSync(path.join(targets.themeRoot, 'package.json'), { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(`Theme package.json must be a regular file: ${targets.themeRoot}`);
   }
   for (const [label, directory] of Object.entries(toolSources)) {
     if (!existsSync(directory)) {

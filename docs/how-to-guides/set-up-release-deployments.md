@@ -93,10 +93,11 @@ Remove `--dry-run` and review the plan. Real setup performs:
    `authorized_keys` bytes and permissions are preserved; symlinks are rejected.
 4. Dedicated key authentication with the agent disabled and a read-only server
    preflight against the production WordPress root.
-5. Private repository creation/reuse, two repository variables and five secrets,
-   followed by variable-value and secret-name read-back.
-6. Local template installation, commit and push, then comparison with the remote
-   commit. The validated source is checked again before committing/pushing.
+5. Private repository creation/reuse and repository variables, then local template
+   installation, commit and push. The committed tree and remote revision must match
+   the validated source. Unmanaged workflows stop setup before service mutations.
+6. Provisioning the five secrets only after that verified publication, followed by
+   variable-value and secret-name read-back. Interrupted runs can resume.
 
 Prerequisites: Git with configured author identity, authenticated `gh`, SSH tools,
 existing SSH access to the account, and Node.js 24 locally or in running DDEV. Builds

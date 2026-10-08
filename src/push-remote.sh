@@ -18,7 +18,7 @@ sha256sum -c SHA256SUMS
 printf 'PREPARING\n' > status
 CANDIDATE="$WORKSPACE/candidate"
 ROLLBACK="$WORKSPACE/rollback"
-mkdir "$CANDIDATE" "$ROLLBACK" "$ROLLBACK/paths" "$WORKSPACE/empty-mu"
+mkdir "$CANDIDATE" "$ROLLBACK" "$ROLLBACK/paths"
 : > switched-paths
 : > originally-present
 DB_CHANGED=0
@@ -38,8 +38,8 @@ rollback_push() {
     printf '%s\n' '<?php $upgrading = time();' > "$ROOT/.maintenance" || failed=1
   fi
   if [ "$DB_CHANGED" -eq 1 ]; then
-    MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" "$DB_NAME" < "$WORKSPACE/drop-tables.sql" || failed=1
-    gzip -dc "$ROLLBACK/database.sql.gz" | MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" "$DB_NAME" || failed=1
+    MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" -- "$DB_NAME" < "$WORKSPACE/drop-tables.sql" || failed=1
+    gzip -dc "$ROLLBACK/database.sql.gz" | MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" -- "$DB_NAME" || failed=1
   fi
   while IFS= read -r entry; do
     if [ -e "$ROLLBACK/paths/$entry" ]; then
@@ -50,7 +50,7 @@ rollback_push() {
     fi
   done < "$WORKSPACE/switched-paths"
   if [ "$DB_CHANGED" -eq 1 ]; then
-    "$PHP_BIN" "$WORKSPACE/wp-cli.phar" --path="$ROOT" --skip-plugins --skip-themes --exec="define('WPMU_PLUGIN_DIR', '$WORKSPACE/empty-mu');" eval-file "$WORKSPACE/content.php" verify "$ROLLBACK/content.json" before || failed=1
+    "$PHP_BIN" "$WORKSPACE/wordpress-data.php" verify "$ROOT" "$ROLLBACK/content.json" before || failed=1
   fi
   if [ "$failed" -eq 0 ]; then
     if [ "$MAINTENANCE_OWNED" -eq 1 ]; then rm -f "$ROOT/.maintenance" || failed=1; fi
@@ -78,7 +78,7 @@ trap 'rollback_push 129' HUP
 # Do not accept a stale approval or a target that was installed at another URL.
 bash "$WORKSPACE/preflight.sh" "$ROOT" "$LIVE_URL" "$PHP_BIN" > target-now.json
 "$PHP_BIN" -r '$actual=json_decode(file_get_contents("target-now.json"),true,512,JSON_THROW_ON_ERROR)["tables"]; $expected=file("target-tables", FILE_IGNORE_NEW_LINES); sort($actual); sort($expected); if ($actual !== $expected) { exit(1); }'
-test ! -e "$ROOT/.maintenance"
+test ! -e "$ROOT/.maintenance" && test ! -L "$ROOT/.maintenance"
 test ! -L "$ROOT/wp-config.php"
 for entry in $(cat managed-paths); do
   case "$entry" in
@@ -96,11 +96,11 @@ PROBE_RESPONSE="$(curl --fail --silent --show-error --connect-timeout 15 --max-t
 test "$PROBE_RESPONSE" = "$PROBE_VALUE"
 rm "$ROOT/$PROBE"
 PROBE=
-WP=("$PHP_BIN" "$WORKSPACE/wp-cli.phar" --path="$ROOT" --skip-plugins --skip-themes --exec="define('WPMU_PLUGIN_DIR', '$WORKSPACE/empty-mu');")
-DB_NAME="$("${WP[@]}" config get DB_NAME --type=constant)"
-DB_USER="$("${WP[@]}" config get DB_USER --type=constant)"
-DB_PASSWORD="$("${WP[@]}" config get DB_PASSWORD --type=constant)"
-DB_HOST_RAW="$("${WP[@]}" config get DB_HOST --type=constant)"
+DATA=("$PHP_BIN" "$WORKSPACE/wordpress-data.php")
+DB_NAME="$("${DATA[@]}" config "$ROOT" DB_NAME)"
+DB_USER="$("${DATA[@]}" config "$ROOT" DB_USER)"
+DB_PASSWORD="$("${DATA[@]}" config "$ROOT" DB_PASSWORD)"
+DB_HOST_RAW="$("${DATA[@]}" config "$ROOT" DB_HOST)"
 DB_HOST="${DB_HOST_RAW%%:*}"
 DB_PORT=3306
 if [ "$DB_HOST_RAW" != "$DB_HOST" ]; then DB_PORT="${DB_HOST_RAW##*:}"; fi
@@ -126,17 +126,16 @@ PHASE="target backup"
   }
 ' > count-tables.sql
 # Obtain a complete original content/revision/CSS inventory before any DB write.
-AUDIT_SETTINGS="$("$PHP_BIN" -r 'echo base64_encode(json_encode(["pattern"=>"~(?!)~", "replacement"=>""]));')"
-"${WP[@]}" eval-file "$WORKSPACE/content.php" inspect "$AUDIT_SETTINGS" > "$ROLLBACK/content.json"
-printf '%s\n' '<?php $upgrading = time();' > "$ROOT/.maintenance"
+"${DATA[@]}" inspect "$ROOT" > "$ROLLBACK/content.json"
+(set -o noclobber; printf '%s\n' '<?php $upgrading = time();' > "$ROOT/.maintenance")
 MAINTENANCE_OWNED=1
 cp -p "$ROOT/wp-config.php" "$ROLLBACK/wp-config.php"
 tar --exclude=./.maintenance -czf "$ROLLBACK/files.tar.gz" -C "$ROOT" .
-MYSQL_PWD="$DB_PASSWORD" mysqldump "${MYSQL_ARGS[@]}" --single-transaction --quick --skip-lock-tables --no-tablespaces --skip-comments "$DB_NAME" > "$ROLLBACK/database.sql"
+MYSQL_PWD="$DB_PASSWORD" mysqldump "${MYSQL_ARGS[@]}" --single-transaction --quick --skip-lock-tables --no-tablespaces --skip-comments -- "$DB_NAME" > "$ROLLBACK/database.sql"
 gzip "$ROLLBACK/database.sql"
 gzip -t "$ROLLBACK/database.sql.gz"
 tar -tzf "$ROLLBACK/files.tar.gz" >/dev/null
-"${WP[@]}" eval-file "$WORKSPACE/content.php" verify "$ROLLBACK/content.json" before
+"${DATA[@]}" verify "$ROOT" "$ROLLBACK/content.json" before
 
 
 PHASE="runtime preparation"
@@ -144,37 +143,43 @@ PHASE="runtime preparation"
 tar --no-same-owner --same-permissions -xzf files.tar.gz -C "$CANDIDATE"
 test -z "$(find "$CANDIDATE" -type l -print -quit)"
 cp -p "$ROOT/wp-config.php" "$CANDIDATE/wp-config.php"
-CWP=("$PHP_BIN" "$WORKSPACE/wp-cli.phar" --path="$CANDIDATE" --skip-plugins --skip-themes --exec="define('WPMU_PLUGIN_DIR', '$WORKSPACE/empty-mu');")
-"${CWP[@]}" config set table_prefix "$SOURCE_PREFIX" --type=variable
+"${DATA[@]}" prefix "$CANDIDATE" "$SOURCE_PREFIX"
 "$PHP_BIN" -l "$CANDIDATE/wp-config.php"
-# Read config constants without loading WordPress against the not-yet-imported prefix.
-"${CWP[@]}" config get table_prefix --type=variable | grep -Fx "$SOURCE_PREFIX"
+"${DATA[@]}" config "$CANDIDATE" table_prefix | grep -Fx "$SOURCE_PREFIX"
 
 PHASE="database import and content verification"
 printf 'APPLYING\n' > status
 DB_CHANGED=1
-MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" "$DB_NAME" < drop-tables.sql
-gzip -dc database.sql.gz | MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" "$DB_NAME"
+MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" -- "$DB_NAME" < drop-tables.sql
+gzip -dc database.sql.gz | MYSQL_PWD="$DB_PASSWORD" mysql "${MYSQL_ARGS[@]}" -- "$DB_NAME"
 # Read-only checks immediately after import, before any WordPress bootstrap writes.
-MYSQL_PWD="$DB_PASSWORD" mysql --batch --skip-column-names "${MYSQL_ARGS[@]}" "$DB_NAME" < count-tables.sql > table-counts
+MYSQL_PWD="$DB_PASSWORD" mysql --batch --skip-column-names "${MYSQL_ARGS[@]}" -- "$DB_NAME" < count-tables.sql > table-counts
 "$PHP_BIN" -r '
   $expected=json_decode(file_get_contents("content.json"),true,512,JSON_THROW_ON_ERROR)["tableRows"];
   $actual=array_map("intval",file("table-counts",FILE_IGNORE_NEW_LINES));
   if ($actual !== array_values($expected)) { throw new RuntimeException("Imported table row counts differ from the source."); }
 '
-# Verify every content row and all protected CSS.
-"${CWP[@]}" eval-file "$WORKSPACE/content.php" verify "$WORKSPACE/content.json" after
-"${CWP[@]}" eval-file "$WORKSPACE/content.php" settings "$WORKSPACE/content.json" "$LIVE_URL" "$SOURCE_VERSION" "$CANDIDATE"
-# Keep existing server rules. A fresh hosting installation may not have rewrite rules yet.
+# Trusted code checks database bytes and static files without loading application PHP.
+"${DATA[@]}" verify "$CANDIDATE" "$WORKSPACE/content.json" after
+"${DATA[@]}" settings "$CANDIDATE" "$WORKSPACE/content.json" "$LIVE_URL" "$SOURCE_VERSION"
+# Keep existing server rules; the supported root-level single site has fixed defaults.
 if [ ! -e "$ROOT/.htaccess" ]; then
-  "${CWP[@]}" eval 'global $wp_rewrite; echo "# BEGIN WordPress\n" . $wp_rewrite->mod_rewrite_rules() . "# END WordPress\n";' > "$CANDIDATE/.htaccess"
+  cat > "$CANDIDATE/.htaccess" <<'HTACCESS'
+# BEGIN WordPress
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+# END WordPress
+HTACCESS
   chmod 644 "$CANDIDATE/.htaccess"
   printf '.htaccess\n' >> managed-paths
 fi
-PHASE="WordPress bootstrap"
-# Plugin/theme bootstrap remains inside the rollback boundary.
-"$PHP_BIN" "$WORKSPACE/wp-cli.phar" --path="$CANDIDATE" eval 'if (wp_get_theme()->errors()) { throw new RuntimeException("Active theme is incomplete."); } foreach (get_option("active_plugins") as $plugin) { if (!is_file(WP_PLUGIN_DIR . "/" . $plugin)) { throw new RuntimeException("Active plugin is missing."); } }'
-"${CWP[@]}" eval-file "$WORKSPACE/content.php" verify "$WORKSPACE/content.json" after
 PHASE="runtime switch"
 while IFS= read -r entry; do
   if [ -e "$ROOT/$entry" ]; then printf '%s\n' "$entry" >> originally-present; fi
@@ -182,8 +187,8 @@ while IFS= read -r entry; do
   if [ -e "$ROOT/$entry" ]; then mv "$ROOT/$entry" "$ROLLBACK/paths/$entry"; fi
   if [ -e "$CANDIDATE/$entry" ]; then mv "$CANDIDATE/$entry" "$ROOT/$entry"; fi
 done < managed-paths
-"$PHP_BIN" "$WORKSPACE/wp-cli.phar" --path="$ROOT" eval 'if (wp_get_theme()->errors()) { throw new RuntimeException("Active theme failed after the switch."); }'
-"${WP[@]}" eval-file "$WORKSPACE/content.php" verify "$WORKSPACE/content.json" after
+"${DATA[@]}" settings "$ROOT" "$WORKSPACE/content.json" "$LIVE_URL" "$SOURCE_VERSION"
+"${DATA[@]}" verify "$ROOT" "$WORKSPACE/content.json" after
 PHASE="HTTPS verification"
 rm "$ROOT/.maintenance"
 for endpoint in "$LIVE_URL/" "$LIVE_URL/wp-login.php"; do
@@ -192,13 +197,13 @@ for endpoint in "$LIVE_URL/" "$LIVE_URL/wp-login.php"; do
   test -s "$WORKSPACE/http-check.html"
   if grep -Eiq 'There has been a critical error|Fatal error:|Error establishing a database connection' "$WORKSPACE/http-check.html"; then exit 1; fi
 done
-PERMALINK="$("${WP[@]}" eval '$pages=get_posts(["post_type"=>"page","post_status"=>"publish","numberposts"=>1]); if ($pages) { echo get_permalink($pages[0]); }')"
+PERMALINK="$("${DATA[@]}" permalink "$ROOT")"
 if [ -n "$PERMALINK" ]; then
   case "$PERMALINK" in "$LIVE_URL"/*) ;; *) echo 'Unexpected page permalink.' >&2; exit 1 ;; esac
   code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$WORKSPACE/page-check.html" --write-out '%{http_code}' "$PERMALINK")"
   test "$code" = 200
 fi
-"${WP[@]}" eval-file "$WORKSPACE/content.php" verify "$WORKSPACE/content.json" after
+"${DATA[@]}" verify "$ROOT" "$WORKSPACE/content.json" after
 printf 'VERIFIED\n' > status
 trap - ERR INT TERM HUP EXIT
 rmdir "$PARENT/.with-scripts-push.lock"

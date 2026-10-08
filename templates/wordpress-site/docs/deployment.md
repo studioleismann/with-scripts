@@ -83,14 +83,19 @@ unsafe paths, or no files are rejected before upload.
 5. Open the `Deploy production` workflow run and wait for every step to finish.
 6. Verify the changed production behavior after the workflow succeeds.
 
-The workflow checks out the release tag, not the latest state of `main`.
+The build checks out the immutable commit associated with the published release.
 
 ## Understand the production switch
 
-The runner first executes the deployment integration suite. It then builds one
-validated archive and a generated component manifest, verifies the configured
-SSH host fingerprint, performs remote preflight checks, and uploads the archive
-into a run-specific workspace below `wp-content`.
+The build runner executes the deployment integration suite and creates an archive
+with its component manifest. It has no deployment secrets. A separate fresh deploy
+runner downloads the exact artifact ID, verifies the archive SHA-256, and obtains
+the remote control script from the immutable workflow revision. Build output cannot
+replace that script. The deploy job performs no dependency installs or builds.
+
+Every external Action is pinned to a full commit SHA. Review and update these pins
+in the template when upgrading Actions. The deploy job verifies the configured SSH
+host fingerprint and uploads into a run-specific workspace below `wp-content`.
 
 On the first successful deployment, current repository components are adopted
 and replaced as complete units. Unknown live-only components remain untouched.

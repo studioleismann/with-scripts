@@ -47,12 +47,22 @@ WordPress files without project-root Git protection, enter the exact text
 ## 3. Let the transfer finish
 
 Pull snapshots the local database, downloads and validates files/database, protects
-tracked files, replaces untracked packages, patches local configuration, imports the
-database, and replaces URL variants. Received-byte counters show download progress.
+tracked files, replaces untracked packages, generates local DDEV configuration, imports
+the database, and replaces URL variants with trusted database-only code. Received-byte counters show download progress.
 A stream stops after 90 seconds without new bytes.
 
-The final WordPress check verifies that the local installation loads sufficiently
-for `wp core is-installed`. It is followed by your own website check.
+The final check reads the database's `home` and `siteurl` values. Imported configuration,
+Core, plugins, and themes stay unexecuted throughout local preparation. Import/exec
+hooks are skipped. Review imported PHP before opening the local website.
+
+Pull requires a literal table prefix and a dedicated database with InnoDB tables.
+URL changes preserve serialized data, GUIDs, Gutenberg markup and Custom CSS. Every
+content row, revision and autosave is inventoried before replacement; changed rows
+are read back inside a transaction. Unsupported or malformed data stops replacement.
+
+The new `wp-config.php` uses DDEV's `db` database/user/password/host and fresh local
+salts. Review and reapply any needed local settings deliberately; production PHP
+configuration is treated as source data.
 
 ## 4. Review the result
 

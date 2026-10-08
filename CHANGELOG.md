@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Security
+
+- Validate every shared-tool theme selector and reject linked theme paths/manifests
+  before npm execution.
+- Separate release builds from deployment credentials and control scripts; bind
+  uploaded artifacts to their ID and SHA-256 and pin Actions to full commits.
+- Reject unmanaged workflows during automatic setup and publish/verify the approved
+  tree before provisioning deployment secrets. Refresh the site template to 1.0.2.
+- Replace imported PHP configuration with local DDEV defaults and perform local URL
+  replacement through database-only code with serialized-data and Custom CSS checks.
+- Use bundled configuration parsing, database inspection and a pinned WordPress block
+  parser for remote push preflight, candidate verification and rollback. Keep site
+  PHP execution in the HTTP runtime, and preserve content/revision/CSS verification.
+
 ### Website repository automation
 
 - Verify the host key selected by the deployment Actions, supporting ECDSA,

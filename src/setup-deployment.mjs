@@ -230,8 +230,9 @@ export async function setupDeployment(args = []) {
       writeFileSync(path.join(candidate, relative), contents);
       chmodSync(path.join(candidate, relative), (lstatSync(path.join(projectRoot, relative), { throwIfNoEntry: false })?.mode || 0o644) & 0o777);
     }
-    for (const relative of sourceFiles.filter((file) => /^\.github\/workflows\/.*\.ya?ml$/.test(file) && file !== '.github/workflows/deploy-production.yml')) {
-      if (/secrets(?:\.(?:HOST|KEY)\b|\[['"](?:HOST|KEY)['"]\])/.test(readFileSync(path.join(candidate, relative), 'utf8'))) throw new Error(`Existing workflow ${relative} uses deployment secrets. Review it before installing this release workflow.`);
+    const unmanagedWorkflows = sourceFiles.filter((file) => /^\.github\/workflows\/.*\.ya?ml$/i.test(file) && file !== '.github/workflows/deploy-production.yml');
+    if (unmanagedWorkflows.length) {
+      throw new Error(`Review and remove unmanaged workflows before automatic secret provisioning: ${unmanagedWorkflows.join(', ')}. Project files were preserved.`);
     }
     if (hasGit) {
       if (execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: projectRoot, encoding: 'utf8' }).trim()) throw new Error('Commit or unstage existing staged changes before website setup.');
@@ -435,18 +436,6 @@ export async function setupDeployment(args = []) {
       const result = spawnSync('gh', ['variable', 'set', name, '--repo', settings.repo], { input: value, encoding: 'utf8', env: ghEnvironment });
       if (result.status !== 0) throw new Error(`Could not set ${name}. Check GitHub permissions and rerun setup.`);
     }
-    for (const [name, value] of Object.entries(secretValues)) {
-      const hash = createHash('sha256').update(value).digest('hex');
-      if (!values['replace-secrets'] && secretNames.has(name) && state.secretsApplied[name] === hash) continue;
-      const result = spawnSync('gh', ['secret', 'set', name, '--repo', settings.repo], { input: name === 'KEY' ? privateKey : value, stdio: ['pipe', 'pipe', 'pipe'], env: ghEnvironment });
-      if (result.status !== 0) throw new Error(`Could not set ${name}. Successfully written secrets are recorded; rerun setup to resume.`);
-      state.secretsApplied[name] = hash;
-      writeConfig(projectRoot, { ...readConfig(projectRoot), wordpressDeployment: state });
-    }
-    const verifiedVariables = JSON.parse(execFileSync('gh', ['variable', 'list', '--repo', settings.repo, '--json', 'name,value'], { encoding: 'utf8', env: ghEnvironment }));
-    const verifiedSecrets = JSON.parse(execFileSync('gh', ['secret', 'list', '--repo', settings.repo, '--json', 'name'], { encoding: 'utf8', env: ghEnvironment }));
-    if (!Object.keys(secretValues).every((name) => verifiedSecrets.some((secret) => secret.name === name)) || !Object.entries({ WORDPRESS_ROOT: settings.root, LIVE_URL: settings.url }).every(([name, value]) => verifiedVariables.some((entry) => entry.name === name && entry.value === value))) throw new Error('GitHub configuration read-back failed. Rerun setup to inspect and repair missing values.');
-
     // Recheck the reviewed bytes after build and service work before committing.
     for (const [relative, hash] of [...before, ...sourceHashes]) {
       const file = path.join(projectRoot, relative);
@@ -483,6 +472,18 @@ export async function setupDeployment(args = []) {
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: projectRoot, encoding: 'utf8' }).trim();
     const published = execFileSync('git', ['ls-remote', 'origin', `refs/heads/${branch}`], { cwd: projectRoot, encoding: 'utf8' }).split(/\s+/)[0];
     if (published !== head) throw new Error('The remote branch differs from the prepared commit. Inspect GitHub before publishing a release.');
+    for (const [name, value] of Object.entries(secretValues)) {
+      const hash = createHash('sha256').update(value).digest('hex');
+      if (!values['replace-secrets'] && secretNames.has(name) && state.secretsApplied[name] === hash) continue;
+      const result = spawnSync('gh', ['secret', 'set', name, '--repo', settings.repo], { input: name === 'KEY' ? privateKey : value, stdio: ['pipe', 'pipe', 'pipe'], env: ghEnvironment });
+      if (result.status !== 0) throw new Error(`Could not set ${name}. Successfully written secrets are recorded; rerun setup to resume.`);
+      state.secretsApplied[name] = hash;
+      writeConfig(projectRoot, { ...readConfig(projectRoot), wordpressDeployment: state });
+    }
+    const verifiedVariables = JSON.parse(execFileSync('gh', ['variable', 'list', '--repo', settings.repo, '--json', 'name,value'], { encoding: 'utf8', env: ghEnvironment }));
+    const verifiedSecrets = JSON.parse(execFileSync('gh', ['secret', 'list', '--repo', settings.repo, '--json', 'name'], { encoding: 'utf8', env: ghEnvironment }));
+    if (!Object.keys(secretValues).every((name) => verifiedSecrets.some((secret) => secret.name === name)) || !Object.entries({ WORDPRESS_ROOT: settings.root, LIVE_URL: settings.url }).every(([name, value]) => verifiedVariables.some((entry) => entry.name === name && entry.value === value))) throw new Error('GitHub configuration read-back failed. Rerun setup to inspect and repair missing values.');
+
     delete state.pendingFiles;
     state.commit = head;
     writeConfig(projectRoot, { ...readConfig(projectRoot), wordpressDeployment: state });

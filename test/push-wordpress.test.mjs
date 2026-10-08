@@ -134,7 +134,7 @@ for (const failure of ['', 'backup', 'import', 'rows', 'content', 'http', 'move'
       writeFileSync(path.join(documentRoot, '.htaccess'), 'server configuration');
       writeFileSync(path.join(documentRoot, 'index.html'), 'placeholder');
       writeFileSync(path.join(root, 'database-state'), 'original-db');
-      for (const name of ['wp-cli.phar', 'content.php'])
+      for (const name of ['wordpress-data.php', 'wordpress-block-parser.php'])
         writeFileSync(path.join(workspace, name), 'test-double');
       writeFileSync(
         path.join(workspace, 'content.json'),
@@ -153,8 +153,8 @@ for (const failure of ['', 'backup', 'import', 'rows', 'content', 'http', 'move'
       writeFileSync(path.join(workspace, 'database.sql.gz'), gzipSync('candidate-db'));
       execFileSync('tar', ['-czf', path.join(workspace, 'files.tar.gz'), '-C', staging, '.']);
       const uploaded = [
-        'wp-cli.phar',
-        'content.php',
+        'wordpress-data.php',
+        'wordpress-block-parser.php',
         'content.json',
         'managed-paths',
         'source-tables',
@@ -178,17 +178,11 @@ for (const failure of ['', 'backup', 'import', 'rows', 'content', 'http', 'move'
 import fs from 'node:fs'; import path from 'node:path'; import {spawnSync} from 'node:child_process';
 const a=process.argv.slice(2), name=path.basename(process.argv[1]), root=process.env.TEST_ROOT, failure=process.env.TEST_FAILURE;
 if(name==='php') {
- if(!a[0]?.endsWith('wp-cli.phar')) {const r=spawnSync(${JSON.stringify(php)},a,{stdio:'inherit'}); process.exit(r.status??1);}
- const wpRoot=a.find(x=>x.startsWith('--path='))?.slice(7);
- if(a.includes('config')) {
-  const i=a.indexOf('config');
-  if(a[i+1]==='get') {const v={DB_NAME:'example_db',DB_USER:'example_user',DB_PASSWORD:'secret',DB_HOST:'localhost',table_prefix:'source_'}; process.stdout.write(v[a[i+2]]||'');}
-  if(a[i+1]==='set') fs.writeFileSync(path.join(wpRoot,'wp-config.php'),'<?php $table_prefix="source_";');
- } else if(a.includes('db') && a.includes('export')) fs.writeFileSync(a[a.indexOf('export')+1],'original-db');
- else if(a.includes('eval-file')) {
-  if(a.includes('inspect')) process.stdout.write('{}');
-  if(a.includes('verify')) {if(failure==='content' && a.includes('after')) process.exit(1); const expected=a.includes('before')?'original-db':'candidate-db'; if(fs.readFileSync(path.join(root,'database-state'),'utf8')!==expected) process.exit(1);}
- }
+ if(!a[0]?.endsWith('wordpress-data.php')) {const r=spawnSync(${JSON.stringify(php)},a,{stdio:'inherit'}); process.exit(r.status??1);}
+ if(a[1]==='config') {const v={DB_NAME:'example_db',DB_USER:'example_user',DB_PASSWORD:'secret',DB_HOST:'localhost',table_prefix:'source_'}; process.stdout.write(v[a[3]]||'');}
+ else if(a[1]==='prefix') fs.writeFileSync(path.join(a[2],'wp-config.php'),'<?php $table_prefix="source_";');
+ else if(a[1]==='inspect') process.stdout.write('{}');
+ else if(a[1]==='verify') {if(failure==='content' && a.includes('after')) process.exit(1); const expected=a.includes('before')?'original-db':'candidate-db'; if(fs.readFileSync(path.join(root,'database-state'),'utf8')!==expected) process.exit(1);}
 } else if(name==='mysqldump') {
  if(failure==='backup') process.exit(1);
  process.stdout.write('original-db');
@@ -260,40 +254,21 @@ if(name==='php') {
   });
 }
 
-// Execute the generated PHP rather than checking only the surrounding shell syntax.
-test('preflight accepts an existing site and uses the selected PHP executable', () => {
+test('preflight rejects dynamic configuration without executing target bootstrap', () => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'with-scripts-preflight-')));
   try {
-    writeFileSync(path.join(root, 'wp-config.php'), '<?php');
-    writeFileSync(
-      path.join(root, 'wp-load.php'),
-      `<?php
-      define('ARRAY_N', 'ARRAY_N');
-      define('WP_CONTENT_DIR', __DIR__ . '/wp-content');
-      $wpdb = new class {
-        public $prefix = 'wp_'; public $options = 'wp_options'; public $last_error = '';
-        public function get_var($sql) { return 'https://example.org'; }
-        public function get_results($sql, $mode) { return [['wp_options', 'BASE TABLE'], ['wp_posts', 'BASE TABLE']]; }
-      };
-    `,
-    );
-    const bin = path.join(root, 'bin');
-    mkdirSync(bin);
-    for (const name of ['mysql', 'mysqldump']) {
-      writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 0\n');
-      chmodSync(path.join(bin, name), 0o755);
-    }
+    const marker = path.join(root, 'executed');
+    const payload = `file_put_contents(${JSON.stringify(marker)}, 'unsafe');`;
+    writeFileSync(path.join(root, 'wp-config.php'), `<?php ${payload} define('DB_NAME', getenv('DB_NAME')); $table_prefix='wp_';`);
+    writeFileSync(path.join(root, 'wp-load.php'), `<?php ${payload}`);
+    const bin = path.join(root, 'bin'); mkdirSync(bin);
+    for (const name of ['mysql', 'mysqldump']) writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     const php = execFileSync('which', ['php'], { encoding: 'utf8' }).trim();
-    const result = spawnSync('bash', ['-s', '--', root, 'https://example.org', php], {
-      input: buildPushPreflightScript(),
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).home, 'https://example.org');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    const result = spawnSync('bash', ['-s', '--', root, 'https://example.org', php], { input: buildPushPreflightScript(), encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /literal definition/);
+    assert.equal(existsSync(marker), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('content verification rejects a missing plugin table before accepting an import', () => {

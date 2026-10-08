@@ -29,10 +29,11 @@ from the dump's consistent transaction; file contents and nontransactional table
 can change during the transfer. A detected `tar` changed-file error stops the pull
 before local replacement and asks for a retry.
 
-Pull imports that database locally, then runs URL replacement across tables matching
-the WordPress prefix. The replacement skips GUIDs. It uses ordinary WP-CLI
-search/replace and has no push-style per-block CSS manifest: a matching live URL
-inside a Custom CSS string can be replaced during a pull.
+Pull imports that database locally, then runs database-only URL replacement across
+its WordPress tables. A fresh DDEV configuration replaces source-controlled PHP
+configuration. GUIDs and Custom CSS stay byte-identical. All content, revisions and
+autosaves are inventoried and hashed before replacement; every changed row is read
+back in the transaction. Imported WordPress PHP and import/exec hooks stay unexecuted.
 
 ## Git protection has a specific boundary
 
@@ -42,7 +43,7 @@ Uncommitted and untracked files stop a protected pull.
 
 A plugin/theme package with any tracked file is preserved as a complete package.
 Other tracked files are archived before extraction and restored afterward. Subsequent
-local preparation can intentionally patch `wp-config.php` and append `.gitignore`
+local preparation intentionally regenerates `wp-config.php` and append `.gitignore`
 lines. Keep credentials in ignored configuration files.
 
 An ignored file is still untracked. Matching untracked production packages are
@@ -76,8 +77,8 @@ Local URLs inside protected CSS intentionally remain and need their own review.
 
 The target gets a private sibling workspace, upload checksums, a lock, original
 content inventory, and file/database backups. Database table names/counts and
-imported settings are checked; WordPress loads with active components and HTTPS
-endpoints are tested. The rollback handler covers failures through those checks.
+imported settings and component files are checked by bundled code; HTTPS endpoints
+are tested through the web runtime. The SSH transaction never loads site PHP. The rollback handler covers failures through those checks.
 The [push guide](../how-to-guides/push-a-local-wordpress-site.md) describes exactly
 what is verified and how to inspect recovery state.
 
@@ -90,14 +91,16 @@ the retained status; a missing completion message cannot establish rollback succ
 
 The setup wizard verifies a dedicated private key and a server host key selected from
 an independent trusted fingerprint. It checks paths and writes GitHub secrets only
-after typed repository confirmation. Keys and earlier secret writes can remain if a
+after repository confirmation and verification of the published commit. Keys and earlier secret writes can remain if a
 later step fails. Successful secret-name listing cannot reveal or compare the stored
 secret values.
 
-The generated release workflow later builds on GitHub and uploads its explicit file
-lists. It contains no remote backup or rollback handler. Its HTTP checks establish
-availability of a few URLs, rather than complete application correctness. Source
-dependencies, stale remote files, and partial uploads need separate review.
+The site template builds on an unprivileged runner and deploys its digest-checked
+artifact on a fresh runner using control code from the immutable workflow revision.
+Actions use full commit pins. Automatic setup rejects unmanaged workflows before
+provisioning secrets. Component transactions and HTTP checks provide the recovery
+boundary described in the generated deployment guide. The older theme-only templates
+use pinned Actions and retain their existing direct-copy deployment behavior.
 
 ## Temporary data and interruption
 

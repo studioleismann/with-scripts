@@ -186,78 +186,21 @@ test('mirror cleanup removes local-only files while preserving Git packages and 
   }
 });
 
-test('wp-config patch is safe and idempotent without optional WP_DEBUG', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'with-scripts-test-'));
+test('local config contains only generated DDEV settings and the validated table prefix', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'with-scripts-config-'));
   const configPath = path.join(root, 'wp-config.php');
   try {
-    writeFileSync(configPath, `<?php
-define( 'DB_NAME', 'prod' );
-define( 'DB_USER', 'prod' );
-define( 'DB_PASSWORD', 'secret' );
-define( 'DB_HOST', 'db.example.com' );
-`);
-    patchWpConfig(configPath);
-    const first = readFileSync(configPath, 'utf8');
-    patchWpConfig(configPath);
-    assert.equal(readFileSync(configPath, 'utf8'), first);
-    assert.match(first, /wp-config-ddev\.php/);
-    assert.match(first, /defined\( 'DB_PASSWORD' \) \|\| define/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('wp-config patch preserves WP_DEBUG values without redefinition warnings', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'with-scripts-test-'));
-  const configPath = path.join(root, 'wp-config.php');
-  try {
-    writeFileSync(path.join(root, 'wp-config-ddev.php'), `<?php
-defined( 'WP_DEBUG' ) || define( 'WP_DEBUG', getenv( 'WP_DEBUG' ) === false || getenv( 'WP_DEBUG' ) === 'true' );
-`);
-    for (const definition of [
-      { source: "define( 'WP_DEBUG', false );", value: false },
-      { source: 'define("WP_DEBUG", true);', value: true },
-      { source: "if ( ! defined( 'WP_DEBUG' ) ) {\n    define( 'WP_DEBUG', false );\n}", value: false },
-    ]) {
-      writeFileSync(configPath, `<?php
-define( 'DB_NAME', 'prod' );
-define( 'DB_USER', 'prod' );
-define( 'DB_PASSWORD', 'secret' );
-define( 'DB_HOST', 'db.example.com' );
-${definition.source}
-echo json_encode( WP_DEBUG );
-`);
-      patchWpConfig(configPath);
-      const first = readFileSync(configPath, 'utf8');
-      patchWpConfig(configPath);
-      assert.equal(readFileSync(configPath, 'utf8'), first);
-      if (definition.source.startsWith('if')) {
-        assert.ok(first.includes(definition.source));
-      }
-
-      for (const [isDdev, debug, expected] of [
-        ['true', 'true', true],
-        ['true', 'false', false],
-        ['false', 'true', definition.value],
-      ]) {
-        const result = spawnSync('php', [
-          '-d', 'error_reporting=-1',
-          '-d', 'display_errors=stderr',
-          '-d', 'log_errors=0',
-          configPath,
-        ], {
-          encoding: 'utf8',
-          env: { ...process.env, IS_DDEV_PROJECT: isDdev, WP_DEBUG: debug },
-        });
-        const context = `${definition.source}: IS_DDEV_PROJECT=${isDdev}, WP_DEBUG=${debug}`;
-        assert.equal(result.status, 0, `${context}: ${result.stderr}`);
-        assert.equal(result.stderr, '', context);
-        assert.equal(result.stdout, JSON.stringify(expected), context);
-      }
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    writeFileSync(configPath, "<?php file_put_contents('/tmp/untrusted-marker', 'attacker'); define('DB_PASSWORD', 'production-secret');");
+    patchWpConfig(configPath, 'example_');
+    const result = readFileSync(configPath, 'utf8');
+    assert.match(result, /DB_NAME', 'db'/);
+    assert.match(result, /DB_HOST', 'db'/);
+    assert.match(result, /\$table_prefix = 'example_'/);
+    assert.doesNotMatch(result, /untrusted-marker|production-secret|wp-config-ddev/);
+    assert.equal(spawnSync('php', ['-l', configPath]).status, 0);
+    assert.throws(() => patchWpConfig(configPath, "unsafe'; code()"), /literal WordPress table prefix/);
+    assert.equal(readFileSync(configPath, 'utf8'), result);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('URL variants cover www and HTTP versions', () => {

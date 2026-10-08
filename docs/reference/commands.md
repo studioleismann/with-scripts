@@ -119,15 +119,16 @@ After confirmation the command:
    unprotected local paths absent from production.
 4. Replaces matching untracked plugin/theme packages as complete units, excludes
    Git-managed packages, extracts other files, and restores tracked files.
-5. Patches and validates `wp-config.php`, appends pull ignore rules, and renames
+5. Generates and validates local DDEV `wp-config.php`, appends pull ignore rules, and renames
    `.maintenance` to `.maintenance.production-copy` when present.
-6. Imports the database, previews/applies live URL variants across prefixed tables
-   with `guid` skipped, and checks `wp core is-installed`.
+6. Imports the database with hooks skipped and applies URL variants using trusted
+   database-only code. It preserves GUIDs, serialized data and Custom CSS, verifies
+   each changed row in a transaction, and checks the local database URLs.
 
 The file stream excludes local metadata and known cache/backup paths. See
 [configuration](configuration.md#pull-file-exclusions) for the exact list and local
 URL precedence. File protection applies during copying; the later `wp-config.php`
-patch and `.gitignore` additions are intentional local edits.
+generation and `.gitignore` additions are intentional local edits.
 
 Temporary downloads are removed in normal success/error cleanup. The database
 snapshot remains. Recovery guidance depends on whether files or database import
@@ -258,7 +259,8 @@ The database export uses all source tables with the WordPress prefix, serialized
 value handling, URL boundaries, and `guid` exclusion. Protected JSON CSS strings
 remain unchanged, including local URLs inside them. Source hashes, revisions,
 autosaves, CSS values, table names/counts, and imported settings are checked.
-Target backup, replacement, bootstrap, and HTTPS checks run under a rollback handler.
+Target backup, replacement, static component checks, and HTTPS checks run under a
+rollback handler. Bundled database code performs remote checks without loading site PHP.
 The sibling workspace and original backups remain for review/retention.
 
 See [Push a local WordPress site](../how-to-guides/push-a-local-wordpress-site.md)
