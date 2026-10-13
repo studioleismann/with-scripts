@@ -71,14 +71,17 @@ function with_scripts_read_config( string $root ): array {
 	return array( $values, $source, $prefix_token );
 }
 
-function with_scripts_data_css( array $blocks, string $parent = '' ): array {
+function with_scripts_data_css( array $blocks, string $parent = '', bool $preserve_stored_classes = false ): array {
 	$result = array();
 	foreach ( $blocks as $index => $block ) {
 		$path = $parent . '/' . $index;
 		$attrs = $block['attrs'] ?? array();
-		if ( preg_match( '/(?:^|\s)has-custom-css(?:\s|$)/', $attrs['className'] ?? '' ) ) throw new RuntimeException( 'has-custom-css must not be stored in className: ' . $path );
-		if ( isset( $attrs['style'] ) && array_key_exists( 'css', $attrs['style'] ) ) $result[] = array( 'path' => $path, 'className' => $attrs['className'] ?? '', 'css' => $attrs['style']['css'] );
-		$result = array_merge( $result, with_scripts_data_css( $block['innerBlocks'] ?? array(), $path ) );
+		$has_stored_class = preg_match( '/(?:^|\s)has-custom-css(?:\s|$)/', $attrs['className'] ?? '' );
+		if ( $has_stored_class && ! $preserve_stored_classes ) throw new RuntimeException( 'has-custom-css must not be stored in className: ' . $path );
+		$has_css = isset( $attrs['style'] ) && array_key_exists( 'css', $attrs['style'] );
+		// Pull preserves existing classes, including blocks without CSS. Compare this inventory before and after each write.
+		if ( $has_css || $has_stored_class ) $result[] = array( 'path' => $path, 'className' => $attrs['className'] ?? '' ) + ( $has_css ? array( 'css' => $attrs['style']['css'] ) : array() );
+		$result = array_merge( $result, with_scripts_data_css( $block['innerBlocks'] ?? array(), $path, $preserve_stored_classes ) );
 	}
 	return $result;
 }
@@ -202,7 +205,7 @@ try {
 	$inventory = array();
 	foreach ( $posts as $post ) {
 		$content = $post['post_content']; unset( $post['post_content'] );
-		$inventory[] = $post + array( 'before' => hash( 'sha256', $content ), 'after' => hash( 'sha256', $content ), 'css' => with_scripts_data_css( $parser->parse( $content ) ) );
+		$inventory[] = $post + array( 'before' => hash( 'sha256', $content ), 'after' => hash( 'sha256', $content ), 'css' => with_scripts_data_css( $parser->parse( $content ), '', $local_pull ) );
 	}
 	if ( 'inspect' === $mode ) {
 		$rows = array();
@@ -230,7 +233,8 @@ try {
 		$columns = $db->query( 'SHOW COLUMNS FROM `' . $table . '`' )->fetch_all( MYSQLI_ASSOC );
 		$keys = array_column( array_filter( $columns, static fn( $column ) => 'PRI' === $column['Key'] ), 'Field' );
 		$text_columns = array_column( array_filter( $columns, static fn( $column ) => 'guid' !== $column['Field'] && preg_match( '/(?:char|text|blob|json)/i', $column['Type'] ) ), 'Field' );
-		foreach ( array_merge( $keys, $text_columns ) as $column ) if ( ! preg_match( '/^[a-zA-Z0-9_]+$/D', $column ) ) throw new RuntimeException( 'Unsupported database column name.' );
+		$automatic_columns = array_column( array_filter( $columns, static fn( $column ) => false !== stripos( $column['Extra'], 'on update' ) ), 'Field' );
+		foreach ( array_merge( $keys, $text_columns, $automatic_columns ) as $column ) if ( ! preg_match( '/^[a-zA-Z0-9_]+$/D', $column ) ) throw new RuntimeException( 'Unsupported database column name.' );
 		if ( ! $text_columns ) continue;
 		foreach ( $db->query( 'SELECT * FROM `' . $table . '`' )->fetch_all( MYSQLI_ASSOC ) as $row ) {
 			$changed = array();
@@ -240,8 +244,10 @@ try {
 				if ( $updated !== $row[ $column ] ) $changed[ $column ] = $updated;
 			}
 			if ( ! $changed ) continue;
+			// Explicitly retain automatic timestamps so URL changes preserve all other row values.
+			$changed += array_intersect_key( $row, array_flip( $automatic_columns ) );
 			if ( ! $keys ) throw new RuntimeException( 'URL replacement requires a primary key: ' . $table );
-			if ( $table === $prefix . 'posts' && isset( $changed['post_content'] ) && with_scripts_data_css( $parser->parse( $row['post_content'] ) ) !== with_scripts_data_css( $parser->parse( $changed['post_content'] ) ) ) throw new RuntimeException( 'URL replacement would change protected Custom CSS.' );
+			if ( $table === $prefix . 'posts' && isset( $changed['post_content'] ) && with_scripts_data_css( $parser->parse( $row['post_content'] ), '', $local_pull ) !== with_scripts_data_css( $parser->parse( $changed['post_content'] ), '', $local_pull ) ) throw new RuntimeException( 'URL replacement would change protected Custom CSS or className.' );
 			$updates[] = array( $table, $keys, $row, $changed );
 		}
 	}
@@ -261,10 +267,10 @@ try {
 			$write->execute( array_merge( array_values( $changed ), $key_values ) );
 			$read->execute( array_map( static fn( $key ) => $changed[ $key ] ?? $row[ $key ], $keys ) );
 			$current = $read->get_result()->fetch_assoc();
-			if ( null === $current || array_map( static fn( $value ) => null === $value ? null : (string) $value, $current ) !== array_replace( $row, $changed ) ) throw new RuntimeException( 'URL replacement verification failed; changes rolled back.' );
+			if ( null === $current || array_map( static fn( $value ) => null === $value ? null : (string) $value, $current ) !== array_replace( $row, $changed ) ) throw new RuntimeException( 'URL replacement verification failed; changes rolled back. Review table: ' . $table );
 			if ( $table === $prefix . 'posts' ) {
 				foreach ( $expected_posts as $index => $post ) if ( $post['ID'] === $row['ID'] ) $expected_posts[ $index ] = array_replace( $post, array_intersect_key( $changed, $post ) );
-				if ( isset( $changed['post_content'] ) && with_scripts_data_css( $parser->parse( $current['post_content'] ) ) !== with_scripts_data_css( $parser->parse( $row['post_content'] ) ) ) throw new RuntimeException( 'Protected Custom CSS changed; URL replacement rolled back.' );
+				if ( isset( $changed['post_content'] ) && with_scripts_data_css( $parser->parse( $current['post_content'] ), '', $local_pull ) !== with_scripts_data_css( $parser->parse( $row['post_content'] ), '', $local_pull ) ) throw new RuntimeException( 'Protected Custom CSS or className changed; URL replacement rolled back.' );
 			}
 			if ( $db->query( "SELECT ID, post_parent, post_type, post_status, post_modified_gmt, post_content FROM `{$prefix}posts` ORDER BY ID" )->fetch_all( MYSQLI_ASSOC ) !== $expected_posts ) throw new RuntimeException( 'Unexpected content or revision changes; URL replacement rolled back.' );
 		}

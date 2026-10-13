@@ -53,6 +53,12 @@
 
 ### Pull and push behavior
 
+- Preserve existing `has-custom-css` block classes during local pull URL replacement,
+  including revisions and blocks without CSS. Reject class additions and CSS changes.
+- Preserve automatic database timestamps during URL replacement and name the table
+  when row verification fails.
+- Increase the Git filename-listing buffer to 64 MiB for pull backups, mirror
+  cleanup, and package protection. Show the underlying backup error when a command fails.
 - Synchronize extracted files and generated local configuration into DDEV before
   reading the table prefix or importing the database. Scope local pull URL changes
   and verification to that prefix while preserving other imported tables. Keep push

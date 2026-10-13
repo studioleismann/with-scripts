@@ -60,6 +60,33 @@ test('serialized URL replacement preserves lengths, references, objects and prot
   assert.match(result.stdout, /example\.org\/css/);
 });
 
+test('pull inventories stored Custom CSS classes and detects additions on blocks without CSS', () => {
+  const css = '& { content: "\\\\"; }\n& a { color: red; }';
+  const original = `<!-- wp:group {"className":"hero has-custom-css","style":{"css":${JSON.stringify(css)}}} -->
+<!-- wp:paragraph {"className":"existing has-custom-css"} --><p>https://example.org/page</p><!-- /wp:paragraph -->
+<!-- wp:paragraph {"className":"plain"} --><p>Unchanged</p><!-- /wp:paragraph -->
+<!-- /wp:group -->`;
+  const result = spawnSync('php', ['-r', `
+    $settings=json_decode(stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR);
+    $argv=['fixture','library']; require $settings['script']; require $settings['parser'];
+    $parser=new WP_Block_Parser();
+    $before=with_scripts_data_css($parser->parse($settings['content']),'',true);
+    $changed=with_scripts_replace_value($settings['content'],$settings['pattern'],'https://example.local');
+    if(with_scripts_data_css($parser->parse($changed),'',true)!==$before)exit(2);
+    foreach(['"plain"'=>'"plain has-custom-css"','"existing has-custom-css"'=>'"existing"'] as $from=>$to) {
+      if(with_scripts_data_css($parser->parse(str_replace($from,$to,$changed)),'',true)===$before)exit(3);
+    }
+    try { with_scripts_data_css($parser->parse($settings['content'])); exit(4); }
+    catch(RuntimeException $error) { if(!str_contains($error->getMessage(),'has-custom-css'))exit(5); }
+    echo json_encode($before,JSON_THROW_ON_ERROR);
+  `], { input: JSON.stringify({ script, parser, content: original, pattern: `~${exportUrlPattern(['https://example.org'])}~` }), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [
+    { path: '/0', className: 'hero has-custom-css', css },
+    { path: '/0/0', className: 'existing has-custom-css' },
+  ]);
+});
+
 const databaseScript = `
 $s=json_decode(stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR);
 mysqli_report(MYSQLI_REPORT_ERROR|MYSQLI_REPORT_STRICT);
@@ -80,10 +107,12 @@ for (const scenario of ['replacement', 'pull replacement', 'successful push', 'f
     const database = 'with_scripts_' + randomBytes(8).toString('hex');
     const marker = path.join(root, 'application-executed');
     const prefix = scenario.endsWith('replacement') ? 'wp_' : 'old_';
-    const original = '<!-- wp:group {"className":"hero","style":{"css":"& { background: url(https://example.org/css); }"}} --><p>https://example.org/page</p><!-- /wp:group -->';
+    const original = scenario === 'pull replacement'
+      ? '<!-- wp:group {"className":"hero has-custom-css","style":{"css":"& { background: url(https://example.org/css); }"}} --><!-- wp:paragraph {"className":"existing has-custom-css"} --><p>https://example.org/page</p><!-- /wp:paragraph --><!-- wp:paragraph {"className":"plain"} --><p>Unchanged</p><!-- /wp:paragraph --><!-- /wp:group -->'
+      : '<!-- wp:group {"className":"hero","style":{"css":"& { background: url(https://example.org/css); }"}} --><p>https://example.org/page</p><!-- /wp:group -->';
     const columnSql = '(ID bigint PRIMARY KEY, post_parent bigint NOT NULL, post_type varchar(30) NOT NULL, post_status varchar(30) NOT NULL, post_modified_gmt datetime NOT NULL, post_content longtext NOT NULL, guid varchar(255) NOT NULL) ENGINE=InnoDB';
-    const schema = `CREATE TABLE ${prefix}posts ${columnSql}; CREATE TABLE ${prefix}options (option_id bigint PRIMARY KEY, option_name varchar(100), option_value longtext) ENGINE=InnoDB; CREATE TABLE ${prefix}plugin_data (id bigint PRIMARY KEY, value longtext) ENGINE=InnoDB;`;
-    const seed = `INSERT INTO ${prefix}posts VALUES (1,0,'page','publish','2026-10-08 00:00:00',CONVERT(0x${Buffer.from(original).toString('hex')} USING utf8mb4),'https://example.org/?p=1'),(2,1,'revision','inherit','2026-10-08 00:01:00',CONVERT(0x${Buffer.from(original+'latest revision').toString('hex')} USING utf8mb4),'https://example.org/?p=2'),(3,1,'revision','inherit','2026-10-08 00:02:00',CONVERT(0x${Buffer.from(original+'autosave').toString('hex')} USING utf8mb4),'https://example.org/?p=3'); INSERT INTO ${prefix}options VALUES (1,'home','https://example.org'),(2,'siteurl','https://example.org'),(3,'stylesheet','example-theme'),(4,'template','example-theme'),(5,'active_plugins','a:1:{i:0;s:18:"example/plugin.php";}'); INSERT INTO ${prefix}plugin_data VALUES (1,'a:1:{s:3:"url";s:24:"https://example.org/page";}');`;
+    const schema = `CREATE TABLE ${prefix}posts ${columnSql}; CREATE TABLE ${prefix}options (option_id bigint PRIMARY KEY, option_name varchar(100), option_value longtext) ENGINE=InnoDB; CREATE TABLE ${prefix}plugin_data (id bigint PRIMARY KEY, value longtext, updated_at timestamp(6) NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), touched_at datetime(6) NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)) ENGINE=InnoDB;`;
+    const seed = `INSERT INTO ${prefix}posts VALUES (1,0,'page','publish','2026-10-08 00:00:00',CONVERT(0x${Buffer.from(original).toString('hex')} USING utf8mb4),'https://example.org/?p=1'),(2,1,'revision','inherit','2026-10-08 00:01:00',CONVERT(0x${Buffer.from(original+'latest revision').toString('hex')} USING utf8mb4),'https://example.org/?p=2'),(3,1,'revision','inherit','2026-10-08 00:02:00',CONVERT(0x${Buffer.from(original+'autosave').toString('hex')} USING utf8mb4),'https://example.org/?p=3'); INSERT INTO ${prefix}options VALUES (1,'home','https://example.org'),(2,'siteurl','https://example.org'),(3,'stylesheet','example-theme'),(4,'template','example-theme'),(5,'active_plugins','a:1:{i:0;s:18:"example/plugin.php";}'); INSERT INTO ${prefix}plugin_data VALUES (1,'a:1:{s:3:"url";s:24:"https://example.org/page";}','2020-01-02 03:04:05.123456','2019-02-03 04:05:06.654321'),(2,'https://example.org/nullable',NULL,NULL);`;
     try {
       execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ sql: `CREATE DATABASE ${database} CHARACTER SET utf8mb4; USE ${database}; ${schema} ${seed}` }) });
       for (const directory of [site, workspace, staging, bin, path.join(root, '.with-scripts-push.lock')]) mkdirSync(directory);
@@ -107,10 +136,27 @@ for (const scenario of ['replacement', 'pull replacement', 'successful push', 'f
       assert.equal(preflight.status, 0, preflight.stdout + preflight.stderr);
       assert.equal(JSON.parse(preflight.stdout).prefix, prefix);
       assert.equal(existsSync(marker), false);
-      const before = JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' }));
+      if (scenario === 'pull replacement') {
+        const strict = spawnSync('php', [script, 'inspect', site], { encoding: 'utf8' });
+        assert.equal(strict.status, 1, strict.stdout + strict.stderr);
+        assert.match(strict.stderr, /has-custom-css must not be stored in className/);
+      }
+      const inventoryScript = `
+        $argv=['fixture','library'];require $s['script'];require $s['parser'];
+        $parser=new WP_Block_Parser();$posts=[];
+        foreach($db->query('SELECT * FROM wp_posts ORDER BY ID')->fetch_all(MYSQLI_ASSOC) as $post) {
+          $post['before']=hash('sha256',$post['post_content']);
+          $post['css']=with_scripts_data_css($parser->parse($post['post_content']),'',true);$posts[]=$post;
+        }
+        echo json_encode(['posts'=>$posts],JSON_THROW_ON_ERROR);
+      `;
+      const pullInventory = () => JSON.parse(execFileSync('php', ['-r', databaseScript + inventoryScript], { input: JSON.stringify({ database, script, parser }), encoding: 'utf8' }));
+      const before = scenario === 'pull replacement'
+        ? { ...JSON.parse(execFileSync('php', [script, 'pull-preflight', site, 'https://example.org'], { encoding: 'utf8' })), ...pullInventory() }
+        : JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' }));
       assert.equal(before.posts.length, 3);
       assert.equal(before.posts[0].css[0].path, '/0');
-      assert.equal(before.posts[0].css[0].className, 'hero');
+      assert.equal(before.posts[0].css[0].className, scenario === 'pull replacement' ? 'hero has-custom-css' : 'hero');
       if (scenario.endsWith('replacement')) {
         const settings = Buffer.from(JSON.stringify({ pattern: `~${exportUrlPattern(['https://example.org'])}~`, replacement: 'https://example.local' })).toString('base64');
         const mode = scenario === 'pull replacement' ? 'pull-replace' : 'replace';
@@ -138,6 +184,18 @@ for (const scenario of ['replacement', 'pull replacement', 'successful push', 'f
           execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: 'DROP TABLE wp_legacy;' }) });
           const unchanged = JSON.parse(execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, query: 'SELECT post_content FROM wp_posts ORDER BY ID' }), encoding: 'utf8' }));
           assert.deepEqual(unchanged.map(row => row.post_content), [original, original + 'latest revision', original + 'autosave']);
+          const addedClass = spawnSync('php', [script, mode, site, Buffer.from(JSON.stringify({ pattern: '~plain~', replacement: 'plain has-custom-css' })).toString('base64')], { encoding: 'utf8' });
+          assert.equal(addedClass.status, 1, addedClass.stdout + addedClass.stderr);
+          assert.match(addedClass.stderr, /would change protected Custom CSS or className/);
+          assert.deepEqual(pullInventory(), { posts: before.posts });
+          execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: `CREATE TRIGGER inject_class BEFORE UPDATE ON wp_posts FOR EACH ROW SET NEW.post_content=REPLACE(NEW.post_content,'"plain"','"plain has-custom-css"');` }) });
+          const injectedClass = spawnSync('php', [script, mode, site, settings], { encoding: 'utf8' });
+          assert.equal(injectedClass.status, 1, injectedClass.stdout + injectedClass.stderr);
+          assert.match(injectedClass.stderr, /URL replacement verification failed; changes rolled back/);
+          assert.deepEqual(pullInventory(), { posts: before.posts });
+          const rolledBackOptions = JSON.parse(execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, query: "SELECT option_value FROM wp_options WHERE option_name IN ('home','siteurl') ORDER BY option_id" }), encoding: 'utf8' }));
+          assert.deepEqual(rolledBackOptions.map(row => row.option_value), ['https://example.org', 'https://example.org']);
+          execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: 'DROP TRIGGER inject_class;' }) });
         }
         const result = spawnSync('php', [script, mode, site, settings], { encoding: 'utf8' });
         assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -148,13 +206,18 @@ for (const scenario of ['replacement', 'pull replacement', 'successful push', 'f
           assert.equal(foreign[0].value, 's:1:"https://example.org/other";');
           execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: 'DROP VIEW other_view; DROP TABLE other_options;' }) });
         }
-        const after = JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' }));
+        const after = scenario === 'pull replacement' ? pullInventory() : JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' }));
         for (let index = 0; index < before.posts.length; index++) {
           assert.deepEqual(after.posts[index].css, before.posts[index].css);
           assert.notEqual(after.posts[index].before, before.posts[index].before);
         }
         const rows = JSON.parse(execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, query: 'SELECT * FROM wp_plugin_data' }), encoding: 'utf8' }));
         assert.equal(rows[0].value, 'a:1:{s:3:"url";s:26:"https://example.local/page";}');
+        assert.equal(rows[0].updated_at, '2020-01-02 03:04:05.123456');
+        assert.equal(rows[0].touched_at, '2019-02-03 04:05:06.654321');
+        assert.equal(rows[1].value, 'https://example.local/nullable');
+        assert.equal(rows[1].updated_at, null);
+        assert.equal(rows[1].touched_at, null);
         const posts = JSON.parse(execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, query: 'SELECT * FROM wp_posts ORDER BY ID' }), encoding: 'utf8' }));
         assert.equal(posts[0].post_content, original.replace('<p>https://example.org/page', '<p>https://example.local/page'));
         assert.equal(posts[0].guid, 'https://example.org/?p=1');
@@ -162,7 +225,7 @@ for (const scenario of ['replacement', 'pull replacement', 'successful push', 'f
         execFileSync('php', ['-r', databaseScript], { input: JSON.stringify({ database, sql: `UPDATE wp_plugin_data SET value='s:1:"https://example.local/bad";';` }) });
         const failed = spawnSync('php', [script, mode, site, Buffer.from(JSON.stringify({ pattern: `~${exportUrlPattern(['https://example.local'])}~`, replacement: 'https://example-next.local' })).toString('base64')], { encoding: 'utf8' });
         assert.equal(failed.status, 1, failed.stdout + failed.stderr);
-        assert.deepEqual(JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' })), after);
+        assert.deepEqual(scenario === 'pull replacement' ? pullInventory() : JSON.parse(execFileSync('php', [script, 'inspect', site], { encoding: 'utf8' })), after);
       } else {
         const sourcePrefix = 'source_';
         const sourceSql = `SET NAMES utf8mb4; ${schema.replaceAll('old_', sourcePrefix)} ${seed.replaceAll('old_', sourcePrefix)}`;

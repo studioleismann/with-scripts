@@ -7,7 +7,7 @@ import test from 'node:test';
 import { gzipSync } from 'node:zlib';
 
 const cli = path.resolve(import.meta.dirname, '../bin/with-scripts.mjs');
-for (const failure of ['', 'sync', 'replace']) {
+for (const failure of ['', 'backup', 'sync', 'replace']) {
 test(`pull uses synchronized configuration and concise errors: ${failure || 'success'}`, async () => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'with-scripts-pull-security-')));
   const project = path.join(root, 'project');
@@ -50,6 +50,23 @@ if(mode==='pull-replace'||mode==='pull-preflight')process.exit(0);
 if(a.includes('php')){const result=spawnSync(${JSON.stringify(php)},a.slice(a.indexOf('php')+1),{cwd:process.env.TEST_CONTAINER,stdio:'inherit'});process.exit(result.status??1);}
 throw new Error('Unexpected DDEV command');
 `,{mode:0o755});
+    if (failure === 'backup') {
+      const git = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+      writeFileSync(path.join(project, 'wp-config.php'), "<?php $table_prefix='local_';");
+      execFileSync(git, ['init', '-q'], { cwd: project });
+      execFileSync(git, ['add', '.'], { cwd: project });
+      execFileSync(git, ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgSign=false', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.org', 'commit', '-qm', 'Fixture'], { cwd: project });
+      writeFileSync(path.join(bin, 'git'), `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args[0] === 'ls-files') {
+  process.stderr.write('fatal: Fixture Git listing failed.\\n');
+  process.exit(1);
+}
+const result = spawnSync(${JSON.stringify(git)}, args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`, { mode: 0o755 });
+    }
     const child=spawn(process.execPath,[cli,'pull-wordpress'],{cwd:project,env:{...process.env,PATH:`${bin}:${process.env.PATH}`,TEST_ROOT:root,TEST_CALLS:calls,TEST_CONTAINER:container,TEST_FAILURE:failure,CI:'1',NO_COLOR:'1'},stdio:['pipe','pipe','pipe'],timeout:30000});
     let output='';let error='';let index=0;
     const answers=[['SSH target','example-host'],['Remote WordPress root','/srv/example/httpdocs'],['Live URL','https://example.org'],['Local DDEV URL','https://example.local'],['Save these settings?','n'],['Delete local files that no longer exist on production?','n'],['Continue?','y']];
@@ -61,6 +78,15 @@ throw new Error('Unexpected DDEV command');
     const commands=readFileSync(calls,'utf8').trim().split('\n').map(line=>JSON.parse(line));
     for(const call of commands.filter(call=>call.mode||call.args.includes('import-db')||call.args.includes('mutagen')))assert.ok(call.args.includes('--skip-hooks'));
     for(const call of commands.filter(call=>call.mode))assert.ok(call.args.includes('--quiet'));
+    if (failure === 'backup') {
+      assert.match(output + error, /Git-tracked files could not be backed up/);
+      assert.match(output + error, /fatal: Fixture Git listing failed\./);
+      assert.match(output + error, /Local files and database were not replaced/);
+      assert.doesNotMatch(output + error, /Check local disk space and permissions|Restore the previous database/);
+      assert.equal(commands.some(call => call.mode || call.args.includes('import-db') || call.args.includes('mutagen')), false);
+      assert.equal(readFileSync(path.join(project, 'wp-config.php'), 'utf8'), "<?php $table_prefix='local_';");
+      return;
+    }
     if(failure==='sync') {
       assert.match(output+error,/Production files could not be synchronized into DDEV/);
       assert.equal(commands.some(call=>call.mode||call.args.includes('import-db')),false);

@@ -71,7 +71,11 @@ the prompt if necessary and keep DDEV routing consistent with it.
 | Database or file download failed | Inspect SSH, remote permissions, and database access | Replacement has not started |
 | Download stalled | Check the connection; streams stop after 90 seconds without new bytes | Replacement has not started |
 | Archive incomplete or invalid | Check disk space and retry the download | Replacement has not started |
-| Secure temporary storage or tracked-file backup failed | Check local space and permissions | Replacement has not started |
+| Secure temporary storage failed | Check local space and permissions | Replacement has not started |
+| Git-tracked file backup failed | Fix the reported Git or tar error and retry | Replacement has not started |
+
+Git filename listings use a 64 MiB output buffer throughout the pull. This limit
+applies to the list of paths; file contents are archived separately.
 
 Settings may already have been saved and a local snapshot created. Failed download
 files are removed during normal error cleanup.
@@ -137,3 +141,12 @@ changed rows. Review malformed/custom serialized data before retrying. A replace
 failure rolls back its URL changes; the production database import has already
 happened, so use the printed DDEV snapshot command to recover the previous local DB.
 Imported PHP is never used to bypass these checks.
+
+Pull preserves existing `has-custom-css` values in block `className`, including
+revisions, autosaves, and blocks without `style.css`. The before/after inventory
+rejects added `has-custom-css` classes and changes to inventoried classes or Custom
+CSS. Full-site push continues to require review of stored `has-custom-css` classes.
+
+URL replacement explicitly preserves columns with `ON UPDATE` timestamps so plugin
+tables retain their original update dates. A row-verification error names the table
+to review and rolls back the complete replacement.

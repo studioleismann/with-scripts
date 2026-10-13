@@ -43,6 +43,7 @@ import {
 const DATA_SCRIPT = readFileSync(new URL('./wordpress-data.php', import.meta.url), 'utf8');
 const BLOCK_PARSER = readFileSync(new URL('./wordpress-block-parser.php', import.meta.url), 'utf8');
 const LOCAL_DATA_SCRIPT = '$argv[2] = getcwd();\n' + BLOCK_PARSER.slice(5) + '\n' + DATA_SCRIPT.slice(5);
+const GIT_LIST_MAX_BUFFER = 64 * 1024 * 1024;
 
 export async function pullWordPress() {
   const projectRoot = process.cwd();
@@ -191,8 +192,9 @@ export async function pullWordPress() {
     if (localProtection.gitProtected) {
       try {
         trackedFilesSaved = backupTrackedFiles(projectRoot, trackedFilesArchive);
-      } catch {
-        throw new Error('Git-tracked files could not be backed up. Check local disk space and permissions.\nLocal files and database were not replaced.');
+      } catch (error) {
+        const reason = error.stderr?.toString().trim() || error.message;
+        throw new Error(`Git-tracked files could not be backed up. Fix the reported error and try again.\n${reason}\nLocal files and database were not replaced.`);
       }
     }
     localFilesChanged = true;
@@ -358,6 +360,7 @@ export async function mirrorProductionFiles(
         execFileSync('git', ['ls-files', '-z'], {
           cwd: projectRoot,
           encoding: 'utf8',
+          maxBuffer: GIT_LIST_MAX_BUFFER,
         }).split('\0').filter(Boolean),
       )
     : new Set();
@@ -474,7 +477,10 @@ export function inspectLocalProtection(projectRoot) {
 }
 
 export function backupTrackedFiles(projectRoot, destination) {
-  const files = execFileSync('git', ['ls-files', '-z'], { cwd: projectRoot });
+  const files = execFileSync('git', ['ls-files', '-z'], {
+    cwd: projectRoot,
+    maxBuffer: GIT_LIST_MAX_BUFFER,
+  });
   if (!files.length) return false;
 
   execFileSync('tar', ['-czf', destination, '--null', '-T', '-'], {
@@ -536,7 +542,7 @@ export function prepareProductionPackages(
         execFileSync(
           'git',
           ['ls-files', '-z', '--', 'wp-content/plugins', 'wp-content/themes'],
-          { cwd: projectRoot, encoding: 'utf8' },
+          { cwd: projectRoot, encoding: 'utf8', maxBuffer: GIT_LIST_MAX_BUFFER },
         ).split('\0'),
       )
     : new Set();

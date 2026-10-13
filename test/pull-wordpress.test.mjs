@@ -57,6 +57,67 @@ test('production extraction can restore every Git-tracked file', () => {
   }
 });
 
+test('large Git file lists preserve tracked files and packages throughout a pull', async () => {
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'with-scripts-large-git-'));
+  const root = path.join(temporaryRoot, 'local');
+  const production = path.join(temporaryRoot, 'production');
+  const backup = path.join(temporaryRoot, 'tracked.tar.gz');
+  const archive = path.join(temporaryRoot, 'production.tar.gz');
+  const theme = 'wp-content/themes/customer-theme';
+  const assets = `${theme}/src/svg/icons`;
+  const trackedPaths = [];
+
+  try {
+    mkdirSync(path.join(root, assets), { recursive: true });
+    mkdirSync(path.join(production, theme), { recursive: true });
+    mkdirSync(path.join(production, 'wp-content/plugins/example-plugin'), { recursive: true });
+    for (let index = 0; index < 10000; index += 1) {
+      const relativePath = `${assets}/asset-${String(index).padStart(5, '0')}-${'x'.repeat(96)}.svg`;
+      trackedPaths.push(relativePath);
+      writeFileSync(path.join(root, relativePath), `Tracked asset ${index}.`);
+    }
+    assert.ok(Buffer.byteLength(trackedPaths.join('\0') + '\0') > 1024 * 1024);
+    assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+    assert.equal(spawnSync('git', ['add', '.'], { cwd: root }).status, 0);
+
+    assert.equal(backupTrackedFiles(root, backup), true);
+    const firstAsset = path.join(root, trackedPaths[0]);
+    const lastAsset = path.join(root, trackedPaths.at(-1));
+    writeFileSync(firstAsset, 'Production copy.');
+    writeFileSync(lastAsset, 'Production copy.');
+    assert.equal(spawnSync('tar', ['-xzf', backup, '-C', root]).status, 0);
+    assert.equal(readFileSync(firstAsset, 'utf8'), 'Tracked asset 0.');
+    assert.equal(readFileSync(lastAsset, 'utf8'), 'Tracked asset 9999.');
+
+    const localTool = path.join(root, theme, 'local-tool.php');
+    const localOnly = path.join(root, 'local-only.txt');
+    writeFileSync(localTool, '<?php // Protected package.');
+    writeFileSync(localOnly, 'Local-only file.');
+    writeFileSync(path.join(production, theme, 'style.css'), 'Production theme.');
+    writeFileSync(path.join(production, 'wp-content/plugins/example-plugin/index.php'), '<?php // Production plugin.');
+    assert.equal(spawnSync('tar', ['-czf', archive, '-C', production, '.']).status, 0);
+
+    const result = await mirrorProductionFiles(root, archive, true);
+    assert.equal(result.removedFiles, 1);
+    assert.equal(existsSync(localOnly), false);
+    assert.equal(readFileSync(localTool, 'utf8'), '<?php // Protected package.');
+
+    const excludes = prepareProductionPackages(root, archive, true);
+    assert.deepEqual(excludes, [`--exclude=./${theme}`, `--exclude=${theme}`]);
+    assert.equal(spawnSync('tar', ['-xzf', archive, '-C', root, ...excludes]).status, 0);
+    assert.equal(readFileSync(firstAsset, 'utf8'), 'Tracked asset 0.');
+    assert.equal(readFileSync(lastAsset, 'utf8'), 'Tracked asset 9999.');
+    assert.equal(readFileSync(localTool, 'utf8'), '<?php // Protected package.');
+    assert.equal(existsSync(path.join(root, theme, 'style.css')), false);
+    assert.equal(
+      readFileSync(path.join(root, 'wp-content/plugins/example-plugin/index.php'), 'utf8'),
+      '<?php // Production plugin.',
+    );
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test('production packages replace local copies without mixing Git-managed packages', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'with-scripts-test-'));
   const production = mkdtempSync(path.join(tmpdir(), 'with-scripts-production-'));
