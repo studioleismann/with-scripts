@@ -23,7 +23,7 @@ and requires matching local and remote PHP major/minor versions.
 | `setup-wordpress` | `ssh`, DDEV, and a working Docker provider; a remote installation to inspect |
 | `pull-wordpress` | DDEV, `ssh`, `tar`, `gzip`; Git for tracked-file protection; `.ddev/config.yaml` in the current directory |
 | `configure-wordpress` | DDEV and an installed single-site WordPress database; network access for selected language/plugin downloads |
-| `setup-theme` | Running DDEV, installed WordPress, Git, npm, `unzip`, a local With Base starter, and shared source repositories |
+| `setup-theme` | Running DDEV, installed WordPress, Git, npm, `unzip`, a local With Art starter, and shared source repositories |
 | `sync-tools` | Running DDEV, installed WordPress, npm, `unzip`, a compatible theme with Patterns scripts, and shared source repositories |
 | `push-wordpress` | Running DDEV, installed single-site WordPress, `ssh`, `scp`, `tar`, `gzip`, `chmod`; npm and installed dependencies for buildable Git-tracked components |
 | `setup-deployment` | WordPress website folder, Git, Bash, `gh`, SSH tools and existing SSH access; real setup needs GitHub admin access and Node.js 24 locally or in running DDEV |
@@ -125,7 +125,7 @@ from the current working directory and shown in the plan. These options select
 compatible local source packages. The With Patterns source used for synchronization
 must also be the source installed as the theme's Patterns dependency.
 
-Supply a local With Base starter with `setup-theme --source=<path>`. Its root must
+Supply a local With Art starter with `setup-theme --source=<path>`. Its root must
 contain `style.css`, `theme.json`, and `package.json`. The wizard asks for the source
 directory when the option is omitted. Obtain the starter and shared tools from
 repositories that you control or have permission to use.

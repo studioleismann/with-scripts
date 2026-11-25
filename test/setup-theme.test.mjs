@@ -22,7 +22,7 @@ test('setup-theme parses its explicit command-line contract', () => {
     parseSetupThemeArgs([
       '--name=Example Theme',
       '--slug=exampletheme',
-      '--source=/tmp/with-base',
+      '--source=/tmp/with-art',
       '--replace-existing',
       '--dry-run',
       '--yes',
@@ -30,7 +30,7 @@ test('setup-theme parses its explicit command-line contract', () => {
     {
       name: 'Example Theme',
       slug: 'exampletheme',
-      source: '/tmp/with-base',
+      source: '/tmp/with-art',
       toolSources: {},
       replaceExisting: true,
       dryRun: true,
@@ -58,7 +58,7 @@ test('theme identities require a customer name and safe WordPress slug', () => {
   assert.doesNotThrow(() => validateThemeIdentity('Example Portal', 'example-portal'));
   assert.throws(() => validateThemeIdentity('', 'customer'), /Theme name/);
   assert.throws(() => validateThemeIdentity('Customer', 'Customer Theme'), /Theme slug/);
-  assert.throws(() => validateThemeIdentity('With Base', 'with-base'), /customer theme slug/);
+  assert.throws(() => validateThemeIdentity('With Art', 'with-art'), /customer theme slug/);
 });
 
 test('WordPress project detection works from the project and theme roots', () => {
@@ -76,10 +76,10 @@ test('WordPress project detection works from the project and theme roots', () =>
   }
 });
 
-test('theme personalization replaces With Base identity but preserves shared tools', () => {
+test('theme personalization replaces With Art identity but preserves shared tools', () => {
   const theme = mkdtempSync(path.join(tmpdir(), 'with-scripts-theme-'));
   try {
-    mkdirSync(path.join(theme, 'inc', 'with-base'), { recursive: true });
+    mkdirSync(path.join(theme, 'inc', 'with-art'), { recursive: true });
     mkdirSync(
       path.join(theme, '.git', 'refs', 'heads', 'backup'),
       { recursive: true },
@@ -88,41 +88,45 @@ test('theme personalization replaces With Base identity but preserves shared too
     writeFileSync(
       path.join(theme, 'style.css'),
       `/*
-Theme Name: with-base
-Theme URI: https://example.com/with-base
-Description: With Base is a flexible block theme.
-Text Domain: with-base
+Theme Name: with-art
+Theme URI: https://example.com/with-art
+Description: With Art is a flexible block theme.
+Text Domain: with-art
 */
 `,
     );
     writeFileSync(
       path.join(theme, 'package.json'),
       `${JSON.stringify({
-        name: 'with-base',
-        description: 'With Base',
+        name: 'with-art',
+        description: 'With Art',
         scripts: {
-          start: 'WITH_BASE_BS_PROXY=https://with-base.local/ wp-scripts start --config webpack.dev.js',
+          start: 'WITH_ART_BS_PROXY=https://example-theme.local/ wp-scripts start --config webpack.dev.js',
         },
       })}\n`,
     );
     writeFileSync(
       path.join(theme, 'README.md'),
-      '# with-base WordPress Block Theme\n\nwith-base is released under the [GPLv2](LICENSE).\n',
+      '# with-art WordPress Block Theme\n\nwith-art is released under the [GPLv2](LICENSE).\n',
     );
     writeFileSync(
       path.join(theme, 'functions.php'),
-      "<?php\nfunction with_base_setup() {}\nrequire 'packages/with-patterns/index.php';\n// with-theme-tools and with-site-tools stay independent.\n",
+      "<?php\nfunction with_art_setup() { load_theme_textdomain( 'with-art' ); }\nrequire 'packages/with-patterns/index.php';\n// with-theme-tools and with-site-tools stay independent.\n",
     );
     writeFileSync(
-      path.join(theme, 'inc', 'with-base', 'setup.php'),
-      "<?php\nconst WITH_BASE_VERSION = '1';\n",
+      path.join(theme, 'webpack.dev.js'),
+      "export default { proxy: process.env.WITH_ART_BS_PROXY };\n",
     );
     writeFileSync(
-      path.join(theme, 'styles', 'typography', 'with-base-fonts.json'),
-      '{"slug":"with-base-fonts"}\n',
+      path.join(theme, 'inc', 'with-art', 'setup.php'),
+      "<?php\nconst WITH_ART_VERSION = '1';\n",
     );
     writeFileSync(
-      path.join(theme, '.git', 'refs', 'heads', 'backup', 'pre-with-base-test'),
+      path.join(theme, 'styles', 'typography', 'with-art-fonts.json'),
+      '{"slug":"with-art-fonts"}\n',
+    );
+    writeFileSync(
+      path.join(theme, '.git', 'refs', 'heads', 'backup', 'pre-with-art-test'),
       '0123456789012345678901234567890123456789\n',
     );
 
@@ -132,7 +136,7 @@ Text Domain: with-base
       localUrl: 'https://example-project.ddev.site',
     });
 
-    assert.equal(existsSync(path.join(theme, 'inc', 'with-base')), false);
+    assert.equal(existsSync(path.join(theme, 'inc', 'with-art')), false);
     assert.equal(existsSync(path.join(theme, 'inc', 'exampletheme')), true);
     assert.equal(
       existsSync(
@@ -142,7 +146,7 @@ Text Domain: with-base
           'refs',
           'heads',
           'backup',
-          'pre-with-base-test',
+          'pre-with-art-test',
         ),
       ),
       true,
@@ -153,6 +157,7 @@ Text Domain: with-base
     );
     const functions = readFileSync(path.join(theme, 'functions.php'), 'utf8');
     assert.match(functions, /function exampletheme_setup/);
+    assert.match(functions, /load_theme_textdomain\( 'exampletheme' \)/);
     assert.match(functions, /packages\/with-patterns/);
     assert.doesNotMatch(functions, /packages\/with-theme-tools/);
     assert.match(functions, /with-site-tools/);
@@ -164,6 +169,14 @@ Text Domain: with-base
 
     const packageJson = JSON.parse(readFileSync(path.join(theme, 'package.json'), 'utf8'));
     assert.equal(packageJson.name, 'exampletheme');
+    assert.match(
+      readFileSync(path.join(theme, 'inc', 'exampletheme', 'setup.php'), 'utf8'),
+      /const EXAMPLETHEME_VERSION/,
+    );
+    assert.match(
+      readFileSync(path.join(theme, 'webpack.dev.js'), 'utf8'),
+      /process\.env\.EXAMPLETHEME_BS_PROXY/,
+    );
     assert.equal(
       packageJson.scripts.start,
       'EXAMPLETHEME_BS_PROXY=https://example-project.ddev.site/ wp-scripts start --config webpack.dev.js',

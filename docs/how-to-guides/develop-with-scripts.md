@@ -108,7 +108,7 @@ The package setting `private: true` prevents accidental npm publication.
 | [`src/setup-wordpress.mjs`](../../src/setup-wordpress.mjs) | DDEV setup and project WP-CLI wrapper installation |
 | [`src/pull-wordpress.mjs`](../../src/pull-wordpress.mjs) | Local snapshot, download, file protection, import, and URL replacement |
 | [`src/configure-wordpress.mjs`](../../src/configure-wordpress.mjs) | Built-in profile, generated PHP, wizard, and verification |
-| [`src/setup-theme.mjs`](../../src/setup-theme.mjs) | With Base copy, personalization, backups, build, and activation |
+| [`src/setup-theme.mjs`](../../src/setup-theme.mjs) | With Art copy, personalization, backups, build, and activation |
 | [`src/sync-tools.mjs`](../../src/sync-tools.mjs) | Local source resolution and sequential runtime synchronization |
 | [`src/push-wordpress.mjs`](../../src/push-wordpress.mjs) | Target review, local package/export, upload, and transaction dispatch |
 | [`src/push-content.php`](../../src/push-content.php) | Content/revision/CSS inventory and imported-state verification |

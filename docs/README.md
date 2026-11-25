@@ -10,7 +10,7 @@ changes listed in the [changelog](../CHANGELOG.md).
 | Bring an existing website into DDEV for the first time | [Setup tutorial](tutorials/set-up-an-existing-wordpress-site.md) |
 | Refresh the local copy | [Pull the latest production copy](how-to-guides/pull-the-latest-production-copy.md) |
 | Apply local WordPress settings | [Configure local WordPress](how-to-guides/configure-local-wordpress.md) |
-| Create a theme from With Base | [Set up a customer theme](how-to-guides/set-up-customer-theme.md) |
+| Create a theme from With Art | [Set up a customer theme](how-to-guides/set-up-customer-theme.md) |
 | Update Patterns and Tools | [Synchronize shared tools](how-to-guides/sync-shared-tools.md) |
 | Prepare SSH access and GitHub Actions | [Set up release deployments](how-to-guides/set-up-release-deployments.md) |
 | Publish a custom-code release | [Deploy custom WordPress code](how-to-guides/deploy-custom-wordpress-code.md) |

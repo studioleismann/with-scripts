@@ -160,14 +160,14 @@ used another language or skipped plugins/media.
 ## `setup-theme`
 
 ```sh
-with-scripts setup-theme --name="Example Theme" --slug=example-theme --source=/path/to/with-base
+with-scripts setup-theme --name="Example Theme" --slug=example-theme --source=/path/to/with-art
 ```
 
 | Option | Effect |
 | --- | --- |
 | `--name=<name>` | Nonempty single-line display name; prompted if omitted |
 | `--slug=<slug>` | Directory, text domain, package name, and source identity; prompted if omitted |
-| `--source=<path>` | Local With Base starter directory; prompted if omitted |
+| `--source=<path>` | Local With Art starter directory; prompted if omitted |
 | `--patterns-source=<path>` | Override the local With Patterns source directory |
 | `--theme-tools-source=<path>` | Override the local With Theme Tools source directory |
 | `--site-tools-source=<path>` | Override the local With Site Tools source directory |
@@ -176,17 +176,17 @@ with-scripts setup-theme --name="Example Theme" --slug=example-theme --source=/p
 | `--yes` | Skips the final apply confirmation; missing name/slug/source still prompt and normal safeguards still run |
 
 Slugs start with a lowercase letter, continue with lowercase letters/numbers, and
-may contain single separating hyphens. `with-base` is reserved.
+may contain single separating hyphens. `with-art` is reserved.
 
 Apply checks local WordPress before reading the source. It copies the theme root
-excluding `.git`, `node_modules`, and `.webpack-cache`; replaces the `With Base`,
-`with-base`, `with_base`, and `WITH_BASE` identity forms in supported text files and
-renames paths containing `with-base`. It adjusts the theme header, package metadata,
+excluding `.git`, `node_modules`, and `.webpack-cache`; replaces the `With Art`,
+`with-art`, `with_art`, and `WITH_ART` identity forms in supported text files and
+renames paths containing `with-art`. It adjusts the theme header, package metadata,
 and BrowserSync start URL, installs local With Patterns as a development dependency,
 runs `patterns:setup` and `sync-tools`, builds/lints the theme, and activates it.
 
 Replacing an existing theme requires that theme to be its own clean Git root. Apply
-creates a `backup/pre-with-base-<timestamp>` branch, a `pre-with-base-<timestamp>`
+creates a `backup/pre-with-art-<timestamp>` branch, a `pre-with-art-<timestamp>`
 DDEV snapshot, and `.with-scripts-backups/themes/<slug>-<timestamp>/`. The original
 Git metadata stays with the replacement. The dry run reports replacement intent;
 it leaves the Git cleanliness and backup checks to apply.

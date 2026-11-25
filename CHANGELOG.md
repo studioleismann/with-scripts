@@ -98,6 +98,8 @@
 
 ### Local configuration, themes, and tools
 
+- Use With Art as the customer-theme starter, including identity replacement,
+  reserved slug, backup names, command help, and setup documentation.
 - Reuse marked page assignments on repeated local configuration runs. Install selected
   Query Monitor, WPvivid Backup, and Activity Log plugins, configure Activity Log
   retention, and verify the applied profile settings.

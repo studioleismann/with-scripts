@@ -51,7 +51,7 @@ database. A theme release cannot publish those database edits by itself. Move th
 through a reviewed content/configuration migration, or use a full-site push when
 replacing the entire target is the intended operation.
 
-With Base also has a separate role: `setup-theme` creates a local starter copy.
+With Art also has a separate role: `setup-theme` creates a local starter copy.
 `sync-tools` updates the local shared runtimes. Their changes reach production through
 the chosen release or full-site transfer process.
 

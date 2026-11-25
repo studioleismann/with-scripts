@@ -49,7 +49,7 @@ const commands = new Map([
   [
     'setup-theme',
     {
-      description: 'Create a customer theme from a local With Base starter directory.',
+      description: 'Create a customer theme from a local With Art starter directory.',
       options: ['--name=<name>', '--slug=<slug>', '--source=<path>', '--patterns-source=<path>', '--theme-tools-source=<path>', '--site-tools-source=<path>', '--replace-existing', '--dry-run', '--yes'],
       run: setupTheme,
     },
@@ -115,7 +115,7 @@ if (!process.argv[2] && interactive) {
       { value: 'inspect-wordpress', label: 'Inspect a WordPress site', hint: 'Read the remote environment' },
       { value: 'pull-wordpress', label: 'Pull a site into DDEV', hint: 'Replace the local copy from production' },
       { value: 'configure-wordpress', label: 'Configure local WordPress', hint: 'Pages, settings, and plugins' },
-      { value: 'setup-theme', label: 'Create a customer theme', hint: 'Start from With Base' },
+      { value: 'setup-theme', label: 'Create a customer theme', hint: 'Start from With Art' },
       { value: 'sync-tools', label: 'Synchronize shared tools', hint: 'Patterns, Theme Tools, and Site Tools' },
       { value: 'setup-deployment', label: 'Set up release deployments', hint: 'Website repository, build checks, SSH and GitHub Actions' },
       { value: 'push-wordpress', label: 'Push a site to the server', hint: 'Replaces the target website after review' },

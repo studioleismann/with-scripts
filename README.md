@@ -44,7 +44,7 @@ colors. Outside an interactive terminal, the bare command prints help.
 | Set up DDEV from a hosted site | `setup-wordpress` | Writes local DDEV configuration and starts DDEV |
 | Refresh a local site | `pull-wordpress` | Replaces the local database and copies remote files with Git protections |
 | Apply the local WordPress profile | `configure-wordpress` | Updates local pages, settings, language files, and selected plugins |
-| Create a customer theme | `setup-theme` | Copies and personalizes With Base, synchronizes tools, builds, and activates locally |
+| Create a customer theme | `setup-theme` | Copies and personalizes With Art, synchronizes tools, builds, and activates locally |
 | Update shared tools | `sync-tools` | Builds local tool sources and updates theme/plugin runtimes |
 | Set up code deployment | `setup-deployment` | Creates/reuses a private website repo, validates release builds, and configures SSH and GitHub |
 | Publish a complete local site | `push-wordpress` | Replaces the explicit remote target after package review and backup |

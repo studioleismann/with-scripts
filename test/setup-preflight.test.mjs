@@ -24,7 +24,7 @@ for (const scenario of [
   { name: 'theme replacement from its theme directory', command: 'setup-theme', preflight: 'missing', existing: true, themeCwd: true },
   { name: 'stopped DDEV project', command: 'setup-theme', preflight: 'stopped', detail: 'DDEV project is stopped' },
   { name: 'unreachable WordPress database', command: 'setup-theme', preflight: 'database', detail: 'Error establishing a database connection' },
-  { name: 'missing local theme source', command: 'setup-theme', source: true, fail: 'source', error: /Not a valid With Base theme source/ },
+  { name: 'missing local theme source', command: 'setup-theme', source: true, fail: 'source', error: /Not a valid With Art theme source/ },
   { name: 'theme setup requires an explicit source in noninteractive mode', command: 'setup-theme', error: /Local starter theme directory \(--source\)/ },
   { name: 'failed dependency installation', command: 'setup-theme', fail: 'install', source: true, error: /Theme dependencies could not be installed/ },
   { name: 'failed theme build after sync', command: 'setup-theme', fail: 'build', source: true, error: /customer theme build failed/, pluginsMayHaveChanged: true },
@@ -45,7 +45,7 @@ for (const scenario of [
     const fixturePackage = path.join(root, 'packages', 'with-scripts');
     const project = path.join(root, 'projects', 'example-project');
     const theme = path.join(project, 'wp-content', 'themes', 'example-theme');
-    const source = path.join(root, 'with-base');
+    const source = path.join(root, 'with-art');
     const bin = path.join(root, 'bin');
     const log = path.join(root, 'commands.jsonl');
     const patternsSource = path.join(root, scenario.explicitSources ? 'custom-packages' : 'packages', 'with-patterns');
@@ -69,9 +69,9 @@ for (const scenario of [
       }
       writeFileSync(path.join(project, '.ddev', 'config.yaml'), 'name: example-project\nproject_tld: local\n');
       writeFileSync(path.join(project, 'wp-content', 'plugins', 'preserved.txt'), 'Existing plugin data.\n');
-      writeFileSync(path.join(source, 'style.css'), 'Theme Name: With Base\nText Domain: with-base\n');
+      writeFileSync(path.join(source, 'style.css'), 'Theme Name: With Art\nText Domain: with-art\n');
       writeFileSync(path.join(source, 'theme.json'), '{}\n');
-      writeFileSync(path.join(source, 'package.json'), '{"name":"with-base","scripts":{}}\n');
+      writeFileSync(path.join(source, 'package.json'), '{"name":"with-art","scripts":{}}\n');
       if (scenario.existing) {
         mkdirSync(path.join(theme, '.git'), { recursive: true });
         writeFileSync(path.join(theme, '.git', 'HEAD'), 'ref: refs/heads/main\n');

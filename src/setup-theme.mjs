@@ -99,8 +99,8 @@ export function validateThemeIdentity(name, slug) {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(slug)) {
     throw new Error('Theme slug must use lowercase letters, numbers, and single hyphens.');
   }
-  if (slug === 'with-base') {
-    throw new Error('Choose a customer theme slug instead of with-base.');
+  if (slug === 'with-art') {
+    throw new Error('Choose a customer theme slug instead of with-art.');
   }
 }
 
@@ -145,10 +145,10 @@ export function personalizeTheme(themeRoot, { name, slug, localUrl }) {
     }
     const original = content.toString('utf8');
     const updated = original
-      .replaceAll('WITH_BASE', constantPrefix)
-      .replaceAll('with_base', phpPrefix)
-      .replaceAll('with-base', slug)
-      .replaceAll('With Base', name);
+      .replaceAll('WITH_ART', constantPrefix)
+      .replaceAll('with_art', phpPrefix)
+      .replaceAll('with-art', slug)
+      .replaceAll('With Art', name);
 
     if (updated !== original) {
       writeFileSync(file, updated);
@@ -245,7 +245,7 @@ export async function setupTheme(args = []) {
     if (targetExists) {
       assertReplaceableTheme(target);
       const timestamp = timestampSlug();
-      const backupBranch = `backup/pre-with-base-${timestamp}`;
+      const backupBranch = `backup/pre-with-art-${timestamp}`;
       backup = path.join(
         projectRoot,
         '.with-scripts-backups',
@@ -264,7 +264,7 @@ export async function setupTheme(args = []) {
       });
       run('Creating DDEV database snapshot', 'ddev', [
         'snapshot',
-        `--name=pre-with-base-${timestamp}`,
+        `--name=pre-with-art-${timestamp}`,
       ], {
         errorMessage: 'The DDEV database snapshot could not be created. Check DDEV and available disk space.\nThe existing theme files were not replaced.',
       });
@@ -351,7 +351,7 @@ export async function setupTheme(args = []) {
     }
 
     log.success('Theme setup complete.');
-    console.log(`With Base source commit: ${sourceCommit}`);
+    console.log(`With Art source commit: ${sourceCommit}`);
     if (backup) {
       console.log(`Recoverable previous theme files: ${backup}`);
     }
@@ -370,7 +370,7 @@ function assertThemeSource(source) {
     !existsSync(path.join(source, 'theme.json')) ||
     !existsSync(path.join(source, 'package.json'))
   ) {
-    throw new Error(`Not a valid With Base theme source: ${source}`);
+    throw new Error(`Not a valid With Art theme source: ${source}`);
   }
 }
 
@@ -418,7 +418,7 @@ function renameIdentityPaths(directory, slug) {
     if (entry.isDirectory()) {
       renameIdentityPaths(original, slug);
     }
-    const renamed = entry.name.replaceAll('with-base', slug);
+    const renamed = entry.name.replaceAll('with-art', slug);
     if (renamed !== entry.name) {
       renameSync(original, path.join(directory, renamed));
     }
