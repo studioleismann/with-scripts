@@ -91,6 +91,8 @@ for (const scenario of [
   { name: 'preserves a working default ahead of newer installed versions', defaultVersion: 80100, alternatives: true, selected: 'php' },
   { name: 'replaces a CGI default with the newest working CLI', defaultVersion: 0, alternatives: true, selected: 'php8.5-cli' },
   { name: 'finds a CLI when the unversioned command is missing', missingDefault: true, alternatives: true, selected: 'php8.5-cli' },
+  { name: 'finds the hosting CLI outside PATH when the default is CGI', defaultVersion: 0, hostingCli: true, selected: 'php-cli' },
+  { name: 'preserves a working default ahead of the hosting CLI', defaultVersion: 80100, hostingCli: true, selected: 'php' },
   { name: 'reports an actionable error when only CGI is available', defaultVersion: 0, failure: /No working PHP CLI/ },
   { name: 'checks the WordPress root before running PHP', defaultVersion: 0, alternatives: true, missingConfig: true, failure: /Check the remote WordPress root/ },
 ]) {
@@ -116,8 +118,13 @@ $table_prefix = 'example_';
       writeFileSync(path.join(project, 'wp-includes/version.php'), "<?php $wp_version = '7.1.3';\n");
       const commands = ['mysql', 'mysqldump', 'tar', ...(scenario.missingDefault ? [] : ['php'])];
       if (scenario.alternatives) commands.push('php8.4-cli', 'php8.5-cli', 'php8.6', 'php8.6-fpm');
+      if (scenario.hostingCli) commands.push('php-cli');
       for (const command of commands) {
-        writeFileSync(path.join(bin, command), `#!${process.execPath}
+        const commandPath = command === 'php-cli'
+          ? path.join(root, 'opt', 'RZphp85', 'bin', command)
+          : path.join(bin, command);
+        mkdirSync(path.dirname(commandPath), { recursive: true });
+        writeFileSync(commandPath, `#!${process.execPath}
 const { appendFileSync } = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
@@ -125,7 +132,7 @@ const command = path.basename(process.argv[1]);
 const args = process.argv.slice(2);
 appendFileSync(process.env.TEST_COMMAND_LOG, JSON.stringify({ command, args }) + '\\n');
 if (command.startsWith('php')) {
-  const versions = { php: Number(process.env.TEST_DEFAULT_PHP), 'php8.4-cli': 80400, 'php8.5-cli': 80500 };
+  const versions = { php: Number(process.env.TEST_DEFAULT_PHP), 'php8.4-cli': 80400, 'php8.5-cli': 80500, 'php-cli': 80500 };
   if (!versions[command]) {
     console.error('Error in argument 1, char 2: option not found r');
     process.exit(1);
@@ -153,7 +160,8 @@ if (command === 'mysqldump') console.log('-- Example database stream');
         TEST_REAL_PHP: fixturePhp.stdout.trim(), TEST_DEFAULT_PHP: String(scenario.defaultVersion || 0),
       };
       for (const build of [buildPreflightScript, buildInspectionScript, buildEnvironmentScript, buildDatabaseStreamScript]) {
-        const result = spawnSync('/bin/bash', ['-s', '--', project], { input: build(), env });
+        const input = build().replaceAll('/opt/RZphp', `${root}/opt/RZphp`);
+        const result = spawnSync('/bin/bash', ['-s', '--', project], { input, env });
         const stderr = result.stderr.toString();
         const stdout = result.stdout.toString();
         if (scenario.failure) {
@@ -166,7 +174,10 @@ if (command === 'mysqldump') console.log('-- Example database stream');
         assert.equal(stderr, '');
         assert.doesNotMatch(stdout, /fixture-password/);
         if (build === buildInspectionScript) {
-          assert.ok(stdout.includes(`Executable: ${path.join(bin, scenario.selected)}`));
+          const selectedPath = scenario.selected === 'php-cli'
+            ? path.join(root, 'opt', 'RZphp85', 'bin', scenario.selected)
+            : path.join(bin, scenario.selected);
+          assert.ok(stdout.includes(`Executable: ${selectedPath}`));
           assert.match(stdout, /PHP CLI \(SSH\)/);
           assert.match(stdout, /Website PHP version: not determined/);
           assert.match(stdout, /WordPress 7\.1\.3/);

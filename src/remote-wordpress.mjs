@@ -3,7 +3,7 @@ import { runCapture } from './cli.mjs';
 // Keep a working default; otherwise inspect the available versioned CLI binaries.
 const PHP_CLI_SETUP = String.raw`PHP_CLI=""
 PHP_CLI_VERSION_ID=0
-PHP_CLI_CANDIDATES=(php php-cli)
+PHP_CLI_CANDIDATES=(php php-cli /opt/RZphp*/bin/php-cli)
 IFS=: read -r -a PHP_CLI_DIRECTORIES <<< "$PATH"
 for PHP_CLI_DIRECTORY in "${'$'}{PHP_CLI_DIRECTORIES[@]}"; do
   for PHP_CLI_CANDIDATE in "${'$'}{PHP_CLI_DIRECTORY:-.}"/php[0-9]*; do

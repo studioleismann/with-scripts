@@ -53,6 +53,8 @@
 
 ### Pull and push behavior
 
+- Discover STRATO PHP CLI executables outside `PATH` for inspection, setup, and pull,
+  while preserving a working default PHP executable.
 - Preserve existing `has-custom-css` block classes during local pull URL replacement,
   including revisions and blocks without CSS. Reject class additions and CSS changes.
 - Preserve automatic database timestamps during URL replacement and name the table
