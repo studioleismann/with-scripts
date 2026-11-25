@@ -20,6 +20,8 @@ and their dependencies. Use sources that you control or have permission to use.
 For shared tools in another layout, pass `--patterns-source=<path>`,
 `--theme-tools-source=<path>`, and `--site-tools-source=<path>` alongside `--source`.
 The selected Patterns source is installed as the new theme's development dependency.
+Use a Patterns source that provides `check-compatibility`; setup runs that check
+against the starter before copying files or creating replacement backups.
 
 Run from the DDEV document root or an immediate theme root. A new theme is created
 under `wp-content/themes/<slug>`. Source paths are resolved from where you run the
@@ -53,6 +55,12 @@ occurs during synchronization, before the final theme build and activation.
 Check the frontend, Site Editor, templates, and saved Global Styles. The copy changes
 With Art identity forms while retaining independent shared-tool names. Customer
 features and stored WordPress content require their own migration.
+
+Personalization records the starter's With Art release in the `WithArt Version`
+header of the customer's `style.css`. A customer starter with its own release
+retains its declared base; the regular theme and package versions stay unchanged.
+The base header remains stable when subsequent customer releases change their own
+version numbers.
 
 For a new theme, add the result to the appropriate project repository yourself.
 Setup creates files but does not initialize Git. `--yes` can skip the final plan

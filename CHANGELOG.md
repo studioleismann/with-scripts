@@ -32,6 +32,9 @@
 
 ### Commands and terminal interface
 
+- Check the selected Patterns package's With Art requirements before theme setup
+  or shared-tool updates, including previews, and preserve the With Art base release
+  in personalized customer themes.
 - Add the read-only `inspect-wordpress` environment report and `setup-wordpress`
   wizard for local DDEV configuration from the remote PHP CLI and database versions.
 - Add the local `configure-wordpress` wizard with the `standard` profile,

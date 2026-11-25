@@ -34,6 +34,8 @@ for (const dryRun of [false, true]) {
         for (const dir of [bin, theme, path.join(project, '.ddev'), path.join(project, 'wp-content/uploads/attacker-package'), path.join(project, 'wp-content/themes/uploads/attacker-package'), path.join(project, 'wp-content/outside')]) mkdirSync(dir, { recursive: true });
         writeFileSync(path.join(project, '.ddev/config.yaml'), 'name: example-project\n');
         for (const dir of [theme, path.join(project, 'wp-content/uploads/attacker-package'), path.join(project, 'wp-content/themes/uploads/attacker-package'), path.join(project, 'wp-content/outside')]) writeFileSync(path.join(dir, 'package.json'), '{"name":"fixture"}\n');
+        mkdirSync(path.join(bin, 'bin'));
+        writeFileSync(path.join(bin, 'bin', 'with-patterns.mjs'), `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.TEST_LOG, JSON.stringify({command:'with-patterns',args:process.argv.slice(2)})+'\\n');\nif (process.argv[2] !== 'check-compatibility') process.exit(1);\n`);
         if (scenario.link) {
           const entry = path.join(project, scenario.link);
           const outside = path.join(root, 'linked-target');
@@ -52,6 +54,7 @@ for (const dryRun of [false, true]) {
           assert.ok(calls.some(call => call.command === 'npm' && call.args[1] === theme), output);
           assert.equal(calls.some(call => call.args.includes('stylesheet')), !scenario.explicit && !scenario.themeCwd);
         } else {
+          assert.equal(calls.some(call => call.command === 'with-patterns'), false, JSON.stringify(calls));
           assert.equal(calls.some(call => call.command === 'npm' || call.command === 'unzip'), false, JSON.stringify(calls));
           assert.equal(calls.some(call => call.args.includes('activate')), false, output);
         }

@@ -92,6 +92,7 @@ Theme Name: with-art
 Theme URI: https://example.com/with-art
 Description: With Art is a flexible block theme.
 Text Domain: with-art
+Version: 0.4.0
 */
 `,
     );
@@ -165,6 +166,8 @@ Text Domain: with-art
     const style = readFileSync(path.join(theme, 'style.css'), 'utf8');
     assert.match(style, /Theme Name: Example Theme/);
     assert.match(style, /Text Domain: exampletheme/);
+    assert.match(style, /^Version: 0\.4\.0$/m);
+    assert.match(style, /^WithArt Version: 0\.4\.0$/m);
     assert.doesNotMatch(style, /Theme URI:/);
 
     const packageJson = JSON.parse(readFileSync(path.join(theme, 'package.json'), 'utf8'));
@@ -185,3 +188,37 @@ Text Domain: with-art
     rmSync(theme, { recursive: true, force: true });
   }
 });
+
+for (const scenario of [
+  { name: 'keeps the base when a customer starter has its own release', domain: 'example-source', version: '3.2.1', base: '0.4.2', expected: '0.4.2' },
+  { name: 'uses the current original release over a stale marker', domain: 'with-art', version: '0.4.3', base: '0.3.0', expected: '0.4.3' },
+  { name: 'rejects an unknown base before renaming files', domain: 'example-source', version: '0.4.0' },
+  { name: 'rejects a missing original release before renaming files', domain: 'with-art', version: '' },
+]) {
+  test(`theme personalization ${scenario.name}`, () => {
+    const theme = mkdtempSync(path.join(tmpdir(), 'with-scripts-base-version-'));
+    try {
+      mkdirSync(path.join(theme, 'with-art'));
+      const style = `/*\nTheme Name: Example\nText Domain: ${scenario.domain}\nVersion: ${scenario.version}\n${scenario.base ? `WithArt Version: ${scenario.base}\n` : ''}*/\n`;
+      writeFileSync(path.join(theme, 'style.css'), style);
+      const packageJson = JSON.stringify({ name: 'example-source', version: scenario.version, scripts: {} });
+      writeFileSync(path.join(theme, 'package.json'), packageJson);
+      const options = { name: 'Example Theme', slug: 'example-theme', localUrl: 'https://example-project.ddev.site' };
+      if (scenario.expected) {
+        personalizeTheme(theme, options);
+        const updated = readFileSync(path.join(theme, 'style.css'), 'utf8');
+        assert.equal(updated.match(/^WithArt Version: (.*)$/m)?.[1], scenario.expected);
+        assert.equal(updated.match(/^Version: (.*)$/m)?.[1], scenario.version);
+        assert.equal(updated.match(/^WithArt Version:/gm)?.length, 1);
+        assert.equal(JSON.parse(readFileSync(path.join(theme, 'package.json'), 'utf8')).version, scenario.version);
+      } else {
+        assert.throws(() => personalizeTheme(theme, options), /declare its With Art base version/);
+        assert.equal(readFileSync(path.join(theme, 'style.css'), 'utf8'), style);
+        assert.equal(readFileSync(path.join(theme, 'package.json'), 'utf8'), packageJson);
+        assert.equal(existsSync(path.join(theme, 'with-art')), true);
+      }
+    } finally {
+      rmSync(theme, { recursive: true, force: true });
+    }
+  });
+}

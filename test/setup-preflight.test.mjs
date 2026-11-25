@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -32,6 +33,8 @@ for (const scenario of [
   { name: 'successful theme setup', command: 'setup-theme', source: true, success: true },
   { name: 'theme setup uses explicitly selected local tool sources', command: 'setup-theme', source: true, explicitSources: true, success: true },
   { name: 'theme preview without WordPress', command: 'setup-theme', source: true, dryRun: true, preflight: 'missing', success: true },
+  { name: 'incompatible starter stops before copying or installing', command: 'setup-theme', source: true, fail: 'compatibility', error: /starter is incompatible/ },
+  { name: 'incompatible starter also fails the read-only preview', command: 'setup-theme', source: true, dryRun: true, fail: 'compatibility', error: /starter is incompatible/ },
   { name: 'sync from project with an explicit slug', command: 'sync-tools', preflight: 'missing', existing: true, slug: true },
   { name: 'sync from theme directory', command: 'sync-tools', preflight: 'missing', existing: true, themeCwd: true },
   { name: 'sync with active theme detection', command: 'sync-tools', preflight: 'missing', existing: true },
@@ -39,6 +42,8 @@ for (const scenario of [
   { name: 'failed Site Tools activation during sync', command: 'sync-tools', fail: 'with-site-tools', existing: true, themeCwd: true, error: /With Site Tools could not be activated/ },
   { name: 'successful tools sync', command: 'sync-tools', existing: true, themeCwd: true, success: true },
   { name: 'tools sync uses explicitly selected local sources', command: 'sync-tools', existing: true, themeCwd: true, explicitSources: true, success: true },
+  { name: 'incompatible tools sync stops before builds and installs', command: 'sync-tools', existing: true, themeCwd: true, fail: 'compatibility', error: /theme is incompatible/ },
+  { name: 'incompatible tools preview also checks the selected source', command: 'sync-tools', existing: true, themeCwd: true, explicitSources: true, dryRun: true, fail: 'compatibility', error: /theme is incompatible/ },
 ]) {
   test(scenario.name, () => {
     const root = mkdtempSync(path.join(tmpdir(), 'with-scripts-preflight-'));
@@ -69,7 +74,7 @@ for (const scenario of [
       }
       writeFileSync(path.join(project, '.ddev', 'config.yaml'), 'name: example-project\nproject_tld: local\n');
       writeFileSync(path.join(project, 'wp-content', 'plugins', 'preserved.txt'), 'Existing plugin data.\n');
-      writeFileSync(path.join(source, 'style.css'), 'Theme Name: With Art\nText Domain: with-art\n');
+      writeFileSync(path.join(source, 'style.css'), 'Theme Name: With Art\nText Domain: with-art\nVersion: 0.4.0\n');
       writeFileSync(path.join(source, 'theme.json'), '{}\n');
       writeFileSync(path.join(source, 'package.json'), '{"name":"with-art","scripts":{}}\n');
       if (scenario.existing) {
@@ -82,6 +87,18 @@ for (const scenario of [
         name,
         statSync(path.join(project, name)).isFile() ? readFileSync(path.join(project, name), 'hex') : null,
       ]);
+
+      mkdirSync(path.join(patternsSource, 'bin'));
+      writeFileSync(path.join(patternsSource, 'bin', 'with-patterns.mjs'), `
+import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(process.env.TEST_LOG, JSON.stringify({ command: 'with-patterns', args, cwd: process.cwd() }) + '\\n');
+if (args.length !== 1 || args[0] !== 'check-compatibility') process.exit(90);
+if (process.env.TEST_FAILURE === 'compatibility') {
+  console.error('Underlying command diagnostic. Incompatible With Art version.');
+  process.exit(1);
+}
+`);
 
       const mock = `#!${process.execPath}
 import { appendFileSync } from 'node:fs';
@@ -159,7 +176,7 @@ if ((command === 'npm' && args.includes('install') && failure === 'install')
       }
       if (scenario.dryRun && scenario.command === 'setup-theme') {
         assert.equal(commands.some(({ command }) => command === 'ddev'), false, output);
-        assert.match(output, /Applying this plan requires/);
+        if (scenario.success) assert.match(output, /Applying this plan requires/);
       }
       if (scenario.error) {
         assert.match(output, scenario.error);
@@ -174,6 +191,12 @@ if ((command === 'npm' && args.includes('install') && failure === 'install')
       }
       if (scenario.fail === 'with-site-tools') {
         assert.match(output, /Runtime files were already synchronized and With Theme Tools was activated/);
+      }
+      if (scenario.fail === 'compatibility') {
+        assert.equal(commands.some(({ command }) => command === 'npm' || command === 'unzip'), false, output);
+        assert.equal(commands.some(({ args }) => args.includes('snapshot') || args.includes('branch')), false, output);
+        const check = commands.find(({ command }) => command === 'with-patterns');
+        assert.equal(check?.cwd, realpathSync(scenario.command === 'setup-theme' ? source : theme));
       }
       if (scenario.success && !scenario.dryRun) {
         assert.match(output, scenario.command === 'setup-theme' ? /Theme setup complete/ : /Shared tools are synchronized and verified/);

@@ -132,6 +132,16 @@ export function detectWordPressProjectRoot(startDirectory) {
 export function personalizeTheme(themeRoot, { name, slug, localUrl }) {
   const phpPrefix = slug.replaceAll('-', '_');
   const constantPrefix = phpPrefix.toUpperCase();
+  const originalStyle = readFileSync(path.join(themeRoot, 'style.css')).subarray(0, 8192).toString('utf8').replace(/\r/g, '\n');
+  const sourceHeaders = {};
+  for (const header of ['Text Domain', 'Version', 'WithArt Version']) {
+    sourceHeaders[header] = originalStyle.match(new RegExp(`^[ \\t/*#@]*${header}:[ \\t]*(.*)$`, 'mi'))?.[1]
+      .replace(/\s*(?:\*\/|\?>).*/, '').trim();
+  }
+  const withArtVersion = sourceHeaders['Text Domain'] === 'with-art' ? sourceHeaders.Version : sourceHeaders['WithArt Version'];
+  if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(withArtVersion || '')) {
+    throw new Error('The starter must declare its With Art base version before personalization.');
+  }
 
   renameIdentityPaths(themeRoot, slug);
 
@@ -156,11 +166,16 @@ export function personalizeTheme(themeRoot, { name, slug, localUrl }) {
   }
 
   const stylePath = path.join(themeRoot, 'style.css');
-  const style = readFileSync(stylePath, 'utf8')
+  let style = readFileSync(stylePath, 'utf8')
     .replace(/^Theme Name:.*$/m, `Theme Name: ${name}`)
     .replace(/^Theme URI:.*\n/m, '')
     .replace(/^Description:.*$/m, `Description: Custom WordPress block theme for ${name}.`)
     .replace(/^Text Domain:.*$/m, `Text Domain: ${slug}`);
+  if (/^[ \t/*#@]*WithArt Version:/mi.test(style)) {
+    style = style.replace(/^([ \t/*#@]*WithArt Version:)[^\r\n]*/mi, `$1 ${withArtVersion}`);
+  } else {
+    style = style.replace(/^([ \t/*#@]*)(Version:[^\r\n]*)(\r?)$/mi, `$1$2$3\n$1WithArt Version: ${withArtVersion}$3`);
+  }
   writeFileSync(stylePath, style);
 
   const packagePath = path.join(themeRoot, 'package.json');
@@ -228,6 +243,13 @@ export async function setupTheme(args = []) {
     }
 
     const toolSources = defaultToolSources(options.toolSources);
+    run('Checking starter compatibility with With Patterns', process.execPath, [
+      path.join(toolSources.patterns, 'bin', 'with-patterns.mjs'),
+      'check-compatibility',
+    ], {
+      cwd: source,
+      errorMessage: 'The starter is incompatible with the selected With Patterns package, or its compatibility check is unavailable. Review the version requirements above and update the local tool source if needed. No project files were changed.',
+    });
     note(`Source: ${source}\nSource commit: ${sourceCommit}\nPatterns source: ${toolSources.patterns}\nTheme Tools source: ${toolSources.themeTools}\nSite Tools source: ${toolSources.siteTools}\nTarget: ${target}\nTheme name: ${name}\nTheme slug: ${slug}\nLocal URL: ${localUrl}\nExisting target: ${targetExists ? 'replace with backup' : 'no'}`, 'Theme setup plan');
 
     if (options.dryRun) {

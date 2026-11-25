@@ -139,6 +139,14 @@ export function syncTools(args = [], context = {}) {
 
   note(`Theme: ${targets.themeRoot}\nPatterns source: ${toolSources.patterns}\nTheme Tools source: ${toolSources.themeTools}\nSite Tools source: ${toolSources.siteTools}\nTheme Tools target: ${themeToolsTarget}\nSite Tools target: ${siteToolsTarget}`, 'Shared tools sync');
 
+  run('Checking theme compatibility with With Patterns', process.execPath, [
+    path.join(toolSources.patterns, 'bin', 'with-patterns.mjs'),
+    'check-compatibility',
+  ], {
+    cwd: targets.themeRoot,
+    errorMessage: 'The theme is incompatible with the selected With Patterns package, or its compatibility check is unavailable. Review the version requirements above and update the local tool source if needed. No theme or plugin files were changed.',
+  });
+
   if (options.dryRun) {
     run('Checking With Patterns runtime', 'npm', [
       '--prefix',

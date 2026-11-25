@@ -13,6 +13,7 @@ For sources outside the default layout, pass `--patterns-source=<path>`,
 `--theme-tools-source=<path>`, and `--site-tools-source=<path>`. Each path is resolved
 from your working directory. The Patterns build source should match the source
 already installed as the theme dependency; sync keeps that dependency assignment.
+The selected source must provide the read-only `check-compatibility` command.
 
 Start DDEV and preserve any local changes in the theme and target plugins. The sync
 has no confirmation prompt, clean-Git requirement, automatic snapshot, or rollback.
@@ -35,7 +36,8 @@ letters, numbers and single hyphens, starting with a letter. The theme must be a
 regular direct child of `wp-content/themes`, with regular `wp-content`/`themes`
 ancestors and a regular `package.json`. Symlinks stop before npm runs.
 
-The dry run checks local WordPress, the theme Patterns runtime, the Theme Tools source
+The dry run checks local WordPress, the selected Patterns source's theme compatibility,
+the theme Patterns runtime, the Theme Tools source
 version and installed plugin status, and the Site Tools runtime. It skips builds and
 synchronization. A failed check is useful information about what needs attention;
 it is not a preview of every byte that would change.
@@ -48,11 +50,13 @@ with-scripts sync-tools --slug=example-theme
 
 The sequence is:
 
-1. Build/check the With Patterns source, then check/sync/check the theme runtime.
-2. Build `dist/with-theme-tools.zip` and unzip it over `wp-content/plugins/with-theme-tools`.
-3. Build the With Site Tools source, then check/sync/check
+1. Check theme compatibility with the selected Patterns source. A rejected or unknown
+   With Art version stops before builds, runtime changes, or plugin installation.
+2. Build/check the With Patterns source, then check/sync/check the theme runtime.
+3. Build `dist/with-theme-tools.zip` and unzip it over `wp-content/plugins/with-theme-tools`.
+4. Build the With Site Tools source, then check/sync/check
    `wp-content/plugins/with-site-tools`.
-4. Activate With Theme Tools, followed by With Site Tools.
+5. Activate With Theme Tools, followed by With Site Tools.
 
 With Patterns remains a theme dependency. Both Tools packages run as independent
 plugins. Theme Tools installation overlays the ZIP onto its target; stale files in

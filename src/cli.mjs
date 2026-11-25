@@ -36,6 +36,7 @@ export function run(label, command, args, options = {}) {
   log.step(label);
   const stdin = options.input ? 'pipe' : 'inherit';
   const result = spawnSync(command, args, {
+    cwd: options.cwd,
     input: options.input,
     stdio: [stdin, options.stdout || 'inherit', 'inherit'],
   });
